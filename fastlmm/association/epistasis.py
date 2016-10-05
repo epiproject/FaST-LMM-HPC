@@ -11,101 +11,202 @@ from pysnptools.snpreader import Bed
 from fastlmm.util.pickle_io import load, save
 import time
 import pandas as pd
+from mpi4py import MPI
 
-def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_name=None,sid_list_0=None,sid_list_1=None,
-                 log_delta=None, min_log_delta=-5, max_log_delta=10, 
-                 cache_file = None,
-                 runner=None):
-    """
-    Function performing epistasis GWAS with ML (never REML).  See http://www.nature.com/srep/2013/130122/srep01099/full/srep01099.html.
+def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work, q_items, queue, mutex, pairs_per_block, snps_list):
 
-    :param test_snps: SNPs from which to test pairs. If you give a string, it should be the base name of a set of PLINK Bed-formatted files.
-    :type test_snps: a :class:`.SnpReader` or a string
+    ####################### LOADING DATA EPISTASIS #########################
 
-    :param pheno: A single phenotype: A 'pheno dictionary' contains an ndarray on the 'vals' key and a iid list on the 'iid' key.
-      If you give a string, it should be the file name of a PLINK phenotype-formatted file.
-    :type pheno: a 'pheno dictionary' or a string
+    with open(distributablep_filename, mode='rb') as f:
+        try:
+            distributable = pickle.load(f)
+        except AttributeError, e:
+            raise AttributeError("[Original message: '{0}'".format(e))
+    exec("runner = " + runner_string)
+    JustCheckExists().input(distributable)
+    
+    taskindex = runner.taskindex
+    taskcount = runner.taskcount
+    workdirectory = distributable.tempdirectory
+    
+    #if not 0 < taskcount: raise Exception("Expect taskcount to be positive")
+    #if not (0 <= taskindex and taskindex < taskcount+1) :raise Exception("Expect taskindex to be between 0 (inclusive) and taskcount (exclusive)")    
+    #shaped_distributable = shape_to_desired_workcount(distributable, taskcount)
+    #if shaped_distributable.work_count != taskcount : raise Exception("Assert: expect workcount == taskcount")
 
-    :param G0: SNPs from which to construct a similarity matrix.
-          If you give a string, it should be the base name of a set of PLINK Bed-formatted files.
-    :type G0: a :class:`.SnpReader` or a string
+    util.create_directory_if_necessary(workdirectory, isfile=False)
+    task_file_name = create_task_file_name(workdirectory, taskindex, taskcount)
+    f = open(task_file_name, "wb")
+    
+    #with open(task_file_name, mode='wb') as f:
+    #is_first_and_only = True
+    #for work in shaped_distributable.work_sequence_range(taskindex, taskindex+1):
+    #assert is_first_and_only, "real assert"
+    #is_first_and_only = False
+            
+    #result = run_all_in_memory(work)
+    #pickle.dump(result, f, pickle.HIGHEST_PROTOCOL)
 
-    :param G1: SNPs from which to construct a second similarity kernel, optional. Also, see 'mixing').
-          If you give a string, it should be the base name of a set of PLINK Bed-formatted files.
-    :type G1: a :class:`.SnpReader` or a string
+    #==============================================#
+    results_list = []
+    #==============================================#
+    epistasis._run_once()
+    lmm = epistasis.lmm_from_cache_file()
+    lmm.sety(epistasis.pheno['vals'])    
+    ####################### LOADED DATA EPISTASIS #########################
 
-    :param mixing: Weight between 0.0 (inclusive, default) and 1.1 (inclusive) given to G1 relative to G0.
-            If you give no mixing number, G0 will get all the weight and G1 will be ignored.
-    :type mixing: number
 
-    :param covar: covariate information, optional: A 'pheno dictionary' contains an ndarray on the 'vals' key and a iid list on the 'iid' key.
-      If you give a string, it should be the file name of a PLINK phenotype-formatted file.
-    :type covar: a 'pheno dictionary' or a string
+    ######################### MPI WORKER SECTION ##########################
+    while True:
+        mutex.acquire()
+        item = 0
+        if not queue.empty():
+            item = queue.get()
+            q_items.value -= 1
+        mutex.release()
+        
+        if item:
+            ################# Work #####################
+            snp0_list, snp1_list = making_pairs(item, pairs_per_block, snps_list)
+            '''
+            for itr in range(len(snp0_list)):
+                sid0 = snp0_list[itr]
+                sid1 = snp1_list[itr]
+                if (sid0 == "rs6437282" and sid1 == "rs864560") or (sid0 == "rs864560" and sid1 == "rs6437282") :
+                    print "=================",sid0,"-",sid1," ========================"
 
-    :param sid_list_0: list of sids, optional:
-            All unique pairs from sid_list_0 x sid_list_1 will be evaluated.
-            If you give no sid_list_0, all sids in test_snps will be used.
-    :type sid_list_0: list of strings
+                if (sid0 == "rs2008906" and sid1 == "rs1042073") or (sid0 == "rs1042073" and sid1 == "rs2008906") :
+                    print "=================",sid0,"-",sid1," ========================"
+            '''
+            #print "[",item,"]: ",snp0_list
+            #print "[",item,"]: ",snp1_list            
+            #print "Process Work"
 
-    :param sid_list_1: list of sids, optional:
-            All unique pairs from sid_list_0 x sid_list_1 will be evaluated.
-            If you give no sid_list_1, all sids in test_snps will be used.
-    :type sid_list_1: list of strings
+            result = epistasis.do_work(lmm, snp1_list, snp0_list)
+            results_list.append((taskindex, result))
+            
+            #print result
+            ############################################
+        if not work.value and queue.empty():
+            break
+    ######################### MPI WORKER SECTION ##########################
 
-    :param output_file_name: Name of file to write results to, optional. If not given, no output file will be created.
-    :type output_file_name: file name
+    pickle.dump(results_list, f, pickle.HIGHEST_PROTOCOL)
 
-    :param log_delta: A parameter to LMM learning, optional
-            If not given will search for best value.
-    :type log_delta: number
+    return
 
-    :param min_log_delta: (default:-5)
-            When searching for log_delta, the lower bounds of the search.
-    :type min_log_delta: number
 
-    :param max_log_delta: (default:-5)
-            When searching for log_delta, the upper bounds of the search.
-    :type max_log_delta: number
+def making_pairs(pairs_range, pairs_per_block, snps_list):
+    tot_snps = len(snps_list)
+    row      = pairs_range[0]
+    col      = pairs_range[1]
 
-    :param cache_file: Name of  file to read or write cached precomputation values to, optional.
-                If not given, no cache file will be used.
-                If given and file does not exists, will write precomputation values to file.
-                If given and file does exists, will read precomputation values from file.
-                The file contains the U and S matrix from the decomposition of the training matrix. It is in Python's np.savez (\*.npz) format.
-                Calls using the same cache file should have the same 'G0' and 'G1'
-    :type cache_file: file name
+    snp0_list = []
+    snp1_list = []
+    
+    start = col
+    for p0 in range(row, tot_snps):
+        for p1 in range(start + 1, tot_snps):
+            snp0_list.append(snps_list[p0])
+            snp1_list.append(snps_list[p1])
+            if len(snp0_list) >= pairs_per_block:                
+                break
+        start = p0 + 1
+        if len(snp0_list) >= pairs_per_block:                
+            break
 
-    :param runner: a runner, optional: Tells how to run locally, multi-processor, or on a cluster.
-        If not given, the function is run locally.
-    :type runner: a runner.
+    return snp0_list, snp1_list
 
-    :rtype: Pandas dataframe with one row per SNP pair. Columns include "PValue"
 
-    :Example:
+def epistasis(test_snps, pheno, G0, taskcount, 
+              pairs_per_block=1000, G1=None, mixing=0.0, covar=None, output_file_name=None,
+              sid_list_0=None,sid_list_1=None,
+              log_delta=None, min_log_delta=-5, max_log_delta=10, 
+              cache_file = None):
+    
+    runner = LocalMultiProc(taskcount, mkl_num_threads=1)    
+    epistasis = _Epistasis(test_snps, pheno, G0, G1, mixing, covar, sid_list_0, sid_list_1, log_delta, min_log_delta, max_log_delta, output_file_name, cache_file)
 
-    >>> import logging
-    >>> from pysnptools.snpreader import Bed
-    >>> from fastlmm.association import epistasis
-    >>> logging.basicConfig(level=logging.INFO)
-    >>> test_snps = Bed('../../tests/datasets/all_chr.maf0.001.N300')
-    >>> pheno = '../../tests/datasets/phenSynthFrom22.23.N300.randcidorder.txt'
-    >>> covar = '../../tests/datasets/all_chr.maf0.001.covariates.N300.txt'
-    >>> results_dataframe = epistasis(test_snps, pheno, G0=test_snps, covar=covar, 
-    ...                                 sid_list_0=test_snps.sid[:10], #first 10 snps
-    ...                                 sid_list_1=test_snps.sid[5:15]) #Skip 5 snps, use next 10
-    >>> print results_dataframe.iloc[0].SNP0, results_dataframe.iloc[0].SNP1,round(results_dataframe.iloc[0].PValue,5),len(results_dataframe)
-    1_12 1_9 0.07779 85
-
-    """
-
-    if runner is None:
-        runner = Local()
-
-    epistasis = _Epistasis(test_snps,pheno,G0, G1, mixing, covar,sid_list_0,sid_list_1, log_delta, min_log_delta, max_log_delta, output_file_name, cache_file)
-    logging.info("# of pairs is {0}".format(epistasis.pair_count))
     epistasis.fill_in_cache_file()
-    result = runner.run(epistasis)
-    return result
+    
+    #print "====== FILL IN CAHE FILE FINISHED ======"
+    snps_list = []
+    fd = open(test_snps + ".bim", "r")
+    for l in fd:
+        spl = l.split("\t")
+        snps_list.append(spl[1])
+
+    #print "====== SNPS LOADED ======"
+    #print snps_list
+    #print "========================="
+
+    ######################## EPISTASIS DATA PREPARATION #############################
+    localpath = os.environ["PATH"]
+    localwd = os.getcwd()
+    
+    import datetime
+    now = datetime.datetime.now()
+    run_dir_rel = os.path.join("runs",util.datestamp(appendrandom=True))
+    run_dir_abs = os.path.join(localwd,run_dir_rel)
+    util.create_directory_if_necessary(run_dir_rel, isfile=False)
+
+    distributablep_filename = os.path.join(run_dir_rel, "distributable.p")
+    with open(distributablep_filename, mode='wb') as f:
+        pickle.dump(epistasis, f, pickle.HIGHEST_PROTOCOL)
+    
+    tunner = "LocalInParts({0},{1},mkl_num_threads={2})".format("{0}", runner.taskcount, runner.mkl_num_threads)
+
+    if not os.path.exists(distributablep_filename): raise Exception(distributablep_filename + " does not exist") 
+    #################################################################################
+
+    ######### MAKING WORKERS PROCESSES ##########
+    comm            = MPI.COMM_WORLD
+    rank            = comm.Get_rank()
+    mpi_procs       = comm.Get_size()
+
+    jobs = []
+
+    manager = multiprocessing.Manager()
+    work    = manager.Value('i', 1)
+    q_items = manager.Value('i', 0)
+    queue   = manager.Queue()
+    mutex   = multiprocessing.Lock()
+
+    for i in range(taskcount):
+        command_string = tunner.format(i)
+
+        #TODO: MEMORY USAGE DANGER! SNPS_LIST WILL BE COPY FOR EACH PROCESS
+        p = multiprocessing.Process(target=_worker, args=(epistasis, distributablep_filename, command_string, i, rank, work, q_items, queue, mutex, pairs_per_block, snps_list))
+        jobs.append(p)
+        p.start()
+    
+    while True:
+        comm.send(rank, dest=mpi_procs - 1, tag=1)
+        task = comm.recv(source=mpi_procs - 1, tag=1)
+        #print "[Worker %d] Work Recived: " % (rank), task
+        if len(task):
+            mutex.acquire()
+            queue.put(task)
+            q_items.value += 1
+            mutex.release()
+        else:
+            comm.send(-1, dest=mpi_procs - 1, tag=1)
+            work.value = 0
+            break
+
+        #print "QUEUE ITEMS: %d, TASKCOUNT: %d" % (q_items.value, taskcount)
+
+        while q_items.value == (taskcount + 2):
+            time.sleep(1)
+            #pass
+        
+
+    for p in jobs:
+        res = p.join()
+
+    return
+    #return result
+
 
 def write(sid0_list, sid1_list, pvalue_list, output_file):
     """
@@ -184,11 +285,11 @@ class _Epistasis(object) : #implements IDistributable
             self.covar = np.hstack((self.covar['vals'],np.ones((self.test_snps.iid_count, 1))))
         self.n_cov = self.covar.shape[1] 
 
-
+        rank = str(MPI.COMM_WORLD.Get_rank())
         if self.output_file_or_none is None:
-            self.__tempdirectory = ".working"
+            self.__tempdirectory = ".working."+rank
         else:
-            self.__tempdirectory = self.output_file_or_none + ".working"
+            self.__tempdirectory = self.output_file_or_none + ".working."+rank
 
         self._ran_once = True
         
@@ -206,6 +307,10 @@ class _Epistasis(object) : #implements IDistributable
         self._run_once()
 
         return self.work_sequence_range(0,self.work_count)
+
+
+    def MPI_Work(self, sid0_list, sid1_list):
+        return self.do_work(lmm, sid0_list, sid1_list)
 
     def work_sequence_range(self, start, end):
         self._run_once()
@@ -448,12 +553,15 @@ class _Epistasis(object) : #implements IDistributable
     do_pair_time = time.time()
 
     def do_work(self, lmm, sid0_list, sid1_list):
+
+        mkl_rt = ctypes.CDLL('libmkl_rt.so')
+        mkl_rt.mkl_set_num_threads(ctypes.byref(ctypes.c_int(1)))
+
         '''
         dataframe = pd.DataFrame(
             index=np.arange(len(sid0_list)),
             columns=('SNP0', 'Chr0', 'GenDist0', 'ChrPos0', 'SNP1', 'Chr1', 'GenDist1', 'ChrPos1', 'PValue', 'NullLogLike', 'AltLogLike')
             )
-
         #!!Is this the only way to set types in a dataframe?
         dataframe['Chr0'] = dataframe['Chr0'].astype(np.float)
         dataframe['GenDist0'] = dataframe['GenDist0'].astype(np.float)
@@ -466,8 +574,8 @@ class _Epistasis(object) : #implements IDistributable
         dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
         '''
 
-        dict_list = []
-        
+        dict_list = []        
+
         #This is some of the code for a different way that reads and dot-products 50% more, but does less copying. Seems about the same speed
         #sid0_index_list = self.test_snps.sid_to_index(sid0_list)
         #sid1_index_list = self.test_snps.sid_to_index(sid1_list)
@@ -497,7 +605,7 @@ class _Epistasis(object) : #implements IDistributable
         for pair_index, sid0 in enumerate(sid0_list):
             sid1 = sid1_list[pair_index]
             sid0_index = sid0_index_list[pair_index]
-            sid1_index = sid1_index_list[pair_index]
+            sid1_index = sid1_index_list[pair_index]            
 
             index_list = np.array([pair_index]) #index to product
             index_list = index_list + len(sid_union_index_list) #Shift by the number of snps in the union
@@ -537,8 +645,8 @@ class _Epistasis(object) : #implements IDistributable
                  sid1, snps_read.pos[sid1_index,0],  snps_read.pos[sid1_index,1], snps_read.pos[sid1_index,2],
                  pvalue, ll_null, ll_alt]
             '''
-
             ##################################################################################################################################            
+
             dict_frame = {}            
             dict_frame['SNP0']        = sid0
             dict_frame['Chr0']        = snps_read.pos[sid0_index,0]
@@ -552,16 +660,27 @@ class _Epistasis(object) : #implements IDistributable
             dict_frame['NullLogLike'] = ll_null
             dict_frame['AltLogLike']  = ll_alt      
             dict_list.append(dict_frame)            
+
             ##################################################################################################################################
+
+            #if (sid0 == "rs6437282" and sid1 == "rs864560") or (sid0 == "rs864560" and sid1 == "rs6437282") :
+            #    print "=================",sid0,"-",sid1," ========================"
+            #    print dataframe
+            #if (sid0 == "rs2008906" and sid1 == "rs1042073") or (sid0 == "rs1042073" and sid1 == "rs2008906") :
+            #    print "=================",sid0,"-",sid1," ========================"
+            #    print dataframe
+
+            #if (sid0 == "rs6437282" and sid1 == "rs864560") or (sid0 == "rs2008906" and sid1 == "rs1042073") :
+            #    print "=================",sid0,"-",sid1," ========================"
+            #    print dataframe
             
             #self.do_pair_count += 1
             #if self.do_pair_count % 100 == 0:
-            #    start = self.do_pair_time
-            #    self.do_pair_time = time.time()
-            #    logging.info("do_pair_count={0}, time={1}".format(self.do_pair_count,self.do_pair_time-start))
+                #start = self.do_pair_time
+                #self.do_pair_time = time.time()
+                #logging.info("do_pair_count={0}, time={1}".format(self.do_pair_count,self.do_pair_time-start))
 
-        dataframe = pd.DataFrame(dict_list)
- 
+        dataframe = pd.DataFrame(dict_list)    
         return dataframe
 
 if __name__ == "__main__":
