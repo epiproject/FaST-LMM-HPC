@@ -448,10 +448,12 @@ class _Epistasis(object) : #implements IDistributable
     do_pair_time = time.time()
 
     def do_work(self, lmm, sid0_list, sid1_list):
+        '''
         dataframe = pd.DataFrame(
             index=np.arange(len(sid0_list)),
             columns=('SNP0', 'Chr0', 'GenDist0', 'ChrPos0', 'SNP1', 'Chr1', 'GenDist1', 'ChrPos1', 'PValue', 'NullLogLike', 'AltLogLike')
             )
+
         #!!Is this the only way to set types in a dataframe?
         dataframe['Chr0'] = dataframe['Chr0'].astype(np.float)
         dataframe['GenDist0'] = dataframe['GenDist0'].astype(np.float)
@@ -462,8 +464,10 @@ class _Epistasis(object) : #implements IDistributable
         dataframe['PValue'] = dataframe['PValue'].astype(np.float)
         dataframe['NullLogLike'] = dataframe['NullLogLike'].astype(np.float)
         dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
+        '''
 
-
+        dict_list = []
+        
         #This is some of the code for a different way that reads and dot-products 50% more, but does less copying. Seems about the same speed
         #sid0_index_list = self.test_snps.sid_to_index(sid0_list)
         #sid1_index_list = self.test_snps.sid_to_index(sid1_list)
@@ -527,11 +531,28 @@ class _Epistasis(object) : #implements IDistributable
             degrees_of_freedom = 1
             pvalue = stats.chi2.sf(2.0 * test_statistic, degrees_of_freedom)
             logging.debug("<{0},{1}>, null={2}, alt={3}, pvalue={4}".format(sid0,sid1,ll_null,ll_alt,pvalue))
-
+            '''
             dataframe.iloc[pair_index] = [
                  sid0, snps_read.pos[sid0_index,0],  snps_read.pos[sid0_index,1], snps_read.pos[sid0_index,2],
                  sid1, snps_read.pos[sid1_index,0],  snps_read.pos[sid1_index,1], snps_read.pos[sid1_index,2],
                  pvalue, ll_null, ll_alt]
+            '''
+
+            ##################################################################################################################################            
+            dict_frame = {}            
+            dict_frame['SNP0']        = sid0
+            dict_frame['Chr0']        = snps_read.pos[sid0_index,0]
+            dict_frame['GenDist0']    = snps_read.pos[sid0_index,1]
+            dict_frame['ChrPos0']     = snps_read.pos[sid0_index,2]
+            dict_frame['SNP1']        = sid1
+            dict_frame['Chr1']        = snps_read.pos[sid1_index,0]
+            dict_frame['GenDist1']    = snps_read.pos[sid1_index,1]
+            dict_frame['ChrPos1']     = snps_read.pos[sid1_index,2]
+            dict_frame['PValue']      = pvalue
+            dict_frame['NullLogLike'] = ll_null
+            dict_frame['AltLogLike']  = ll_alt      
+            dict_list.append(dict_frame)            
+            ##################################################################################################################################
 
             self.do_pair_count += 1
             if self.do_pair_count % 100 == 0:
@@ -539,6 +560,8 @@ class _Epistasis(object) : #implements IDistributable
                 self.do_pair_time = time.time()
                 logging.info("do_pair_count={0}, time={1}".format(self.do_pair_count,self.do_pair_time-start))
 
+        dataframe = pd.DataFrame(dict_list)
+ 
         return dataframe
 
 if __name__ == "__main__":
