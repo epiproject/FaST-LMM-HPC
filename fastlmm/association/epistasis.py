@@ -117,7 +117,7 @@ def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_na
               cache_file = None,
               runner=None,
               mode = 0):
-    
+
     #if runner is None:
         #runner = Local()
 
