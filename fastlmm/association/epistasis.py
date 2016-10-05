@@ -653,7 +653,7 @@ class _Epistasis(object) : #implements IDistributable
 
         t = time.time()
 
-        print "U.T: [%d x %d] . X: [%d x %d]" % (len(lmm.U.T), len(lmm.U.T[1]), len(X), len(X[1]))
+        #print "U.T: [%d x %d] . X: [%d x %d]" % (len(lmm.U.T), len(lmm.U.T[1]), len(X), len(X[1]))
 
         k = lmm.S.shape[0]
         N = X.shape[0]
