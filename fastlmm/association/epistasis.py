@@ -553,12 +553,12 @@ class _Epistasis(object) : #implements IDistributable
             dict_frame['AltLogLike']  = ll_alt      
             dict_list.append(dict_frame)            
             ##################################################################################################################################
-
-            self.do_pair_count += 1
-            if self.do_pair_count % 100 == 0:
-                start = self.do_pair_time
-                self.do_pair_time = time.time()
-                logging.info("do_pair_count={0}, time={1}".format(self.do_pair_count,self.do_pair_time-start))
+            
+            #self.do_pair_count += 1
+            #if self.do_pair_count % 100 == 0:
+            #    start = self.do_pair_time
+            #    self.do_pair_time = time.time()
+            #    logging.info("do_pair_count={0}, time={1}".format(self.do_pair_count,self.do_pair_time-start))
 
         dataframe = pd.DataFrame(dict_list)
  
