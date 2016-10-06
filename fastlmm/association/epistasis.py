@@ -81,7 +81,7 @@ def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tsk
         except AttributeError, e:
             raise AttributeError("[Original message: '{0}'".format(e))
 
-    exec("runner = " + runner_string)
+    #exec("runner = " + runner_string)
     
     distributable.lock = l
     distributable.cond = c
@@ -92,9 +92,12 @@ def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tsk
     distributable.gpu_free = g
 
     JustCheckExists().input(distributable)
-    return my_run_one_task(distributable, runner.taskindex, runner.taskcount, distributable.tempdirectory)
-        
 
+    #print runner.taskindex, " vs ", tsk_id, "-", runner.taskcount, " vs ", tskcount
+
+    return my_run_one_task(distributable, tsk_id - 1, tskcount, distributable.tempdirectory)
+        
+'''
 def worker_old(distributablep_filename, runner_string, l, distributable):
 
     if not os.path.exists(distributablep_filename): raise Exception(distributablep_filename + " does not exist")
@@ -109,7 +112,7 @@ def worker_old(distributablep_filename, runner_string, l, distributable):
     exec("runner = " + runner_string)       
 
     runner.run(distributable)
-
+'''
 
 
 def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_name=None,sid_list_0=None,sid_list_1=None,
@@ -153,7 +156,7 @@ def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_na
         with open(distributablep_filename, mode='wb') as f:
             pickle.dump(epistasis, f, pickle.HIGHEST_PROTOCOL)
     
-        tunner = "LocalInParts({0},{1},mkl_num_threads={2})".format("{0}", runner.taskcount, runner.mkl_num_threads)
+        runner_cmd = "LocalInParts({0},{1},mkl_num_threads={2})".format("{0}", runner.taskcount, runner.mkl_num_threads)
 
         if not os.path.exists(distributablep_filename): raise Exception(distributablep_filename + " does not exist")
     
@@ -167,7 +170,7 @@ def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_na
         jobs = []
 
         for i in range(runner.taskcount):
-            command_string = tunner.format(i)
+            command_string = runner_cmd.format(i)
             p = multiprocessing.Process(target=my_worker, args=(distributablep_filename, command_string, lock, cond, sync, gpu_free, i + 1, runner.taskcount, queue, epistasis))
             jobs.append(p)
             p.start()
