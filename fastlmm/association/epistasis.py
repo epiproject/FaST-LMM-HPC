@@ -74,13 +74,13 @@ def my_run_one_task(distributable, taskindex, taskcount, workdirectory):
 
 
 def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tskcount, q, distributable):
-    
+    '''
     with open(distributablep_filename, mode='rb') as f:
         try:
             distributable = pickle.load(f)
         except AttributeError, e:
             raise AttributeError("[Original message: '{0}'".format(e))
-
+    '''
     #exec("runner = " + runner_string)
     
     distributable.lock = l
@@ -91,7 +91,7 @@ def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tsk
     distributable.queue = q
     distributable.gpu_free = g
 
-    JustCheckExists().input(distributable)
+    #JustCheckExists().input(distributable)
 
     #print runner.taskindex, " vs ", tsk_id, "-", runner.taskcount, " vs ", tskcount
 
