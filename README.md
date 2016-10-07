@@ -1,6 +1,6 @@
 # Fast-LMM Epistasis MPI
 
-MPI implementation for Epistasis Fast-LMM 
+MPI implementation for Epistasis Fast-LMM for Linux
 
 CONTACT
 -------
@@ -10,7 +10,10 @@ CONTACT
 
 DOWNLOAD and BUILDING
 ---------------------
-  Follow the same steps that Fast-LMM URL "https://github.com/MicrosoftGenomics/FaST-LMM"
+  Follow the same steps that Fast-LMM section "Detailed Package Install Instructions" (see "https://github.com/MicrosoftGenomics/FaST-LMM") for install python package
+  and then run 
+
+    $ sudo python setup.py install
 
 RUNING
 -------
