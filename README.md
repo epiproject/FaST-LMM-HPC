@@ -21,4 +21,4 @@ RUNING
   The results are stored in "dataframe.out" binary file. If you want to read it, you need make a script to it. 
   See the example "output_read.py" to read the file and run it for view the results output.
 
-   $ pyhon output_read.py
+    $ pyhon output_read.py
