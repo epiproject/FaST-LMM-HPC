@@ -1,8 +1,22 @@
-# Example to run Fast-LMM Epistasis MPI
+# Fast-LMM Epistasis MPI
 
-$ mpirun -np 4 -hosts host0,host1,host2,host0 python mpi_manager.py 8 epiData epiPheno.pheno
+MPI implementation for Epistasis Fast-LMM 
 
-The results are stored in "dataframe.out" binary file. If you want to read it, you need make a script to read it.
-Run output_read.py
+CONTACT
+-------
+  You can contact any of the following developers:
 
-$ pyhon output_read.py
+    * Héctor Matínez (martneh@uji.es)
+
+DOWNLOAD and BUILDING
+---------------------
+  Follow the same steps that Fast-LMM URL "https://github.com/MicrosoftGenomics/FaST-LMM"
+
+RUNING
+-------
+    $ mpirun -np 4 -hosts host0,host1,host2,host0 python mpi_manager.py 8 epiData epiPheno.pheno
+
+  The results are stored in "dataframe.out" binary file. If you want to read it, you need make a script to read it. 
+  See the example "output_read.py" to read the file and run it for view the results output.
+
+   $ pyhon output_read.py
