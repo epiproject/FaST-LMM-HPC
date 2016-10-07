@@ -46,14 +46,9 @@ def my_run_one_task(distributable, taskindex, taskcount, workdirectory):
     if not 0 < taskcount: raise Exception("Expect taskcount to be positive")
     if not (0 <= taskindex and taskindex < taskcount+1) :raise Exception("Expect taskindex to be between 0 (inclusive) and taskcount (exclusive)")
 
-    #print "## Free memory Before Create:", drv.mem_get_info()
-
     culinalg.init()
     distributable.gpu_free.value = drv.mem_get_info()[0]
 
-    #print "## Free memory After Created:", drv.mem_get_info()
-
-    #shaped_distributable = BatchUpWork(distributable, distributable.work_count, taskcount)
     shaped_distributable = shape_to_desired_workcount(distributable, taskcount)
 
     if shaped_distributable.work_count != taskcount : raise Exception("Assert: expect workcount == taskcount")
@@ -74,15 +69,6 @@ def my_run_one_task(distributable, taskindex, taskcount, workdirectory):
 
 
 def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tskcount, q, distributable):
-    '''
-    with open(distributablep_filename, mode='rb') as f:
-        try:
-            distributable = pickle.load(f)
-        except AttributeError, e:
-            raise AttributeError("[Original message: '{0}'".format(e))
-    '''
-    #exec("runner = " + runner_string)
-    
     distributable.lock = l
     distributable.cond = c
     distributable.sync = sync
@@ -91,28 +77,7 @@ def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tsk
     distributable.queue = q
     distributable.gpu_free = g
 
-    #JustCheckExists().input(distributable)
-
-    #print runner.taskindex, " vs ", tsk_id, "-", runner.taskcount, " vs ", tskcount
-
     return my_run_one_task(distributable, tsk_id - 1, tskcount, distributable.tempdirectory)
-        
-'''
-def worker_old(distributablep_filename, runner_string, l, distributable):
-
-    if not os.path.exists(distributablep_filename): raise Exception(distributablep_filename + " does not exist")
-
-    with open(distributablep_filename, mode='rb') as f:
-        try:
-            distributable = pickle.load(f)
-        except AttributeError, e:
-            raise AttributeError("An AttributeError when loading the pickle file is often caused by having the __main__ in the same file as a needed class. One possible fix is to add an import statement in the __main__ for the class. [Original message: '{0}'".format(e))
-            
-
-    exec("runner = " + runner_string)       
-
-    runner.run(distributable)
-'''
 
 
 def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_name=None,sid_list_0=None,sid_list_1=None,
