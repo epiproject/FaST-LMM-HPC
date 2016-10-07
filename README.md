@@ -11,7 +11,7 @@ CONTACT
 DOWNLOAD and BUILDING
 ---------------------
   Follow the same steps that Fast-LMM section "Detailed Package Install Instructions" (see "https://github.com/MicrosoftGenomics/FaST-LMM") for install python package
-  and then run 
+  and then run:
 
     $ sudo python setup.py install
 
