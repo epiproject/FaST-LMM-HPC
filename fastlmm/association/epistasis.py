@@ -37,7 +37,7 @@ from copy import copy, deepcopy
 
 ####################### GPU #########################
 
-import gnumpy as gpu
+#import gnumpy as gpu
 
 ##################################################################################################################################
 #def my_doMainWorkForOneIndex(distributable, taskAndWorkcount, taskindex, workdirectory):    
