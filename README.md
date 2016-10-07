@@ -23,6 +23,7 @@ DOWNLOAD and BUILDING
 RUNING
 -------
   Follow the same steps that Fast-LMM url or run:
+
     $ python run_epi.py <num_python_procs> <epiDataset> <epiPheno>
     
     $ python run_epi.py 8 epiData epiPheno.pheno
