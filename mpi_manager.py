@@ -47,7 +47,7 @@ taskcount       = int(sys.argv[1])
 snps_fd         = sys.argv[2]
 pheno_fd        = sys.argv[3]
 
-print "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+#print "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
 if rank == 0:
     final_t = time.time()
@@ -106,7 +106,7 @@ if rank == mpi_procs - 1:
     ####################################################################################
 
 else:
-    print "[%d]WORKER PROCESS" % (rank)
+    print "[%d]WORKER PROCESS START" % (rank)
     t = time.time()
     new_res = epistasis(snps_fd, pheno_fd, snps_fd, taskcount, pairs_per_block=pairs_per_block)
     print "# WORKER [%d] FINISHED IN %0.2f (S) #" % (rank, time.time() - t)
@@ -121,8 +121,14 @@ if rank == 0:
     frame.sort("PValue", inplace=True)
     frame.index = np.arange(len(frame))
 
+    file_name = "dataframe.out"
+    f = open(file_name, "wb")
+
+    pickle.dump(frame, f, pickle.HIGHEST_PROTOCOL)
+    f.close()
+
     #print frame
-    print "#### FINISHED IN %0.2f (S) ####" % (time.time() - final_t)
+    #print "#### FINISHED IN %0.2f (S) ####" % (time.time() - final_t)
     #for index, row in frame.iterrows():
     #    print row['SNP0'],row['SNP1'],row['PValue']
 
