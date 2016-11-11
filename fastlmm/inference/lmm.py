@@ -1,3 +1,4 @@
+
 import scipy as SP
 import numpy as NP
 import scipy.linalg as LA
@@ -10,6 +11,8 @@ import time
 import warnings
 import logging
 
+from fastlmm.association import global_vars
+
 class LMM(object):
     """
     linear mixed model with up to two kernels
@@ -18,7 +21,7 @@ class LMM(object):
     K0 = G0*G0^T
     K1 = G1*G1^T
     """
-    __slots__ = ["G","G0","G1","y","X","K0","K1","K","U","S","UX","Uy","UUX","UW","UUW","UUy","pos0","pos1","a2","exclude_idx",
+    __slots__ = ["G","G0","G1","y","X","K0","K1","K","U","S","UX","Uy","UUX","UW","UUW","UUy","pos0","pos1","a2","exclude_idx", "memorizedLogdetK", "memorizedLogdetK_denom",
                  "forcefullrank","numcalls","Xstar","Kstar","Kstar_star","UKstar","UUKstar","Gstar","K0star","K1star","K0star_star","K1star_star"]
 
     def __init__(self,forcefullrank=False):
@@ -55,6 +58,8 @@ class LMM(object):
         self.UKstar=None
         self.UUKstar=None
         self.Gstar = None
+        self.memorizedLogdetK = None
+        self.memorizedLogdetK_denom = None
 
     def setX(self, X):
         '''
@@ -344,7 +349,7 @@ class LMM(object):
 
 
 
-    def nLLeval(self,h2=0.0,REML=True, logdelta = None, delta = None, dof = None, scale = 1.0,penalty=0.0):
+    def nLLeval(self,h2=0.0,REML=True, logdelta = None, delta = None, dof = None, scale = 1.0, penalty=0.0, useMemorizedLogdetK=False):
         '''
         evaluate -ln( N( U^T*y | U^T*X*beta , h2*S + (1-h2)*I ) ),
         where ((1-a2)*K0 + a2*K1) = USU^T
@@ -372,6 +377,8 @@ class LMM(object):
         'scale'     : Scale parameter that multiplies the Covariance matrix (default 1.0)
         --------------------------------------------------------------------------
         '''
+        nll_t = time.time()
+
         if (h2<0.0) or (h2>1.0):
             return {'nLL':3E20,
                     'h2':h2,
@@ -399,12 +406,34 @@ class LMM(object):
         XKX = UXS.T.dot(self.UX)
         XKy = UXS.T.dot(self.Uy)
         yKy = UyS.T.dot(self.Uy)
+        '''
+        print "-------------------------"
+        print len(self.Uy)
+        print "-------------------------"
+        print len(UXS)
+        print "-------------------------"
+        print len(UyS)
+        print "-------------------------"
+        print len(self.Uy)
+        print "-------------------------"
+        print len(self.UX)
+        print "-------------------------"
+        '''
+        global_vars.nLL_p1 += (time.time() - nll_t)
+        nll_t = time.time()
 
-        logdetK = SP.log(Sd).sum()
-                
-        if (k<N):#low rank part
+        if useMemorizedLogdetK:
+            if self.memorizedLogdetK is None:
+                self.memorizedLogdetK = SP.log(Sd).sum()
+            logdetK = self.memorizedLogdetK
+        else:
+            logdetK = SP.log(Sd).sum()
+
+        global_vars.log_time += (time.time() - nll_t)
         
+        if (k<N):#low rank part
             # determine normalization factor
+            
             if delta is not None:
                 denom = (delta*scale)
             else:
@@ -412,15 +441,29 @@ class LMM(object):
             
             XKX += self.UUX.T.dot(self.UUX)/(denom)
             XKy += self.UUX.T.dot(self.UUy)/(denom)
-            yKy += self.UUy.T.dot(self.UUy)/(denom)      
-            logdetK+=(N-k) * SP.log(denom)
- 
+            yKy += self.UUy.T.dot(self.UUy)/(denom)
+
+            t = time.time()
+            if useMemorizedLogdetK:
+                if self.memorizedLogdetK_denom is None:
+                    logdetK += (N-k) * SP.log(denom)
+                    self.memorizedLogdetK_denom = logdetK
+                logdetK = self.memorizedLogdetK_denom
+            else:
+                logdetK += (N-k) * SP.log(denom)
+
+            global_vars.log_time2 += (time.time() - t)
+
+        global_vars.nLL_p2 += (time.time() - nll_t)
+        nll_t = time.time()
+
         # proximal contamination (see Supplement Note 2: An Efficient Algorithm for Avoiding Proximal Contamination)
         # available at: http://www.nature.com/nmeth/journal/v9/n6/extref/nmeth.2037-S1.pdf
         # exclude SNPs from the RRM in the likelihood evaluation
         
-
+        #Not in epistasis with our dataset...
         if len(self.exclude_idx) > 0:          
+
             num_exclude = len(self.exclude_idx)
             
             # consider only excluded SNPs
@@ -522,6 +565,9 @@ class LMM(object):
                   'a2':self.a2,
                   'scale':scale
                   }        
+
+        global_vars.nLL_p3 += (time.time() - nll_t)
+
         assert SP.all(SP.isreal(nLL)), "nLL has an imaginary component, possibly due to constant covariates"
         return result
 

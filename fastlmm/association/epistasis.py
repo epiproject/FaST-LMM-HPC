@@ -358,15 +358,9 @@ class _Epistasis(object) : #implements IDistributable
         #print "Free memory Before asign:", drv.mem_get_info()
         final_t = 0
         for sid0_list, sid1_list in self.pair_block_sequence_range(start, end):
-            #t = time.time()
-            #pack = self.do_work_first(lmm, sid0_list, sid1_list)
-            #final_t += ( time.time() - t )
             yield lambda lmm=lmm, sid0_list=sid0_list, sid1_list=sid1_list : self.do_work(lmm, sid0_list, sid1_list)            
             #pack_list.append(pack)
             
-        
-        print ("Time First phase %0.4f (s)" % (final_t))
-
     def reduce(self, result_sequence):
         #doesn't need "run_once()"
 
@@ -749,7 +743,7 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = UUX[:,index_list_less_product]
             else:
                 lmm.UUX = None
-            res_null = lmm.nLLeval(delta=self.internal_delta, REML=False)
+            res_null = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=False)
             ll_null = -res_null["nLL"]
 
             #Alt -- now with the product feature
@@ -759,7 +753,7 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = UUX[:,index_list]
             else:
                 lmm.UUX = None
-            res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False)
+            res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=False)
             ll_alt = -res_alt["nLL"]
 
             test_statistic = ll_alt - ll_null

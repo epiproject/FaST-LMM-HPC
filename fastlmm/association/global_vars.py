@@ -1,11 +1,38 @@
 global first_section
 global second_section
-global log_Time
+
+global snd_col1
+global snd_log1
+global snd_col2
+global snd_log2
+global snd_chi
+global snd_res
+
+global log_time
+global log_time2
+
+global nLL_p1
+global nLL_p2
+global nLL_p3
 
 first_section  = 0
 second_section = 0
 
-log_time = 0
+snd_col1 = 0
+snd_log1 = 0
+snd_col2 = 0
+snd_log2 = 0
+snd_chi  = 0
+snd_res  = 0
+
+log_time  = 0
+log_time2 = 0
+nl_time   = 0
+
+nLL_p1 = 0
+nLL_p2 = 0
+nLL_p3 = 0
+
 
 '''
 global facum_2
