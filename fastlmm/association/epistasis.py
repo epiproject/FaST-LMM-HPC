@@ -357,10 +357,22 @@ class _Epistasis(object) : #implements IDistributable
         
         #print "Free memory Before asign:", drv.mem_get_info()
         final_t = 0
+
+        #maxProducts = 1
+        #products = 0
         for sid0_list, sid1_list in self.pair_block_sequence_range(start, end):
             yield lambda lmm=lmm, sid0_list=sid0_list, sid1_list=sid1_list : self.do_work(lmm, sid0_list, sid1_list)            
-            #pack_list.append(pack)
-            
+            #products += 1
+            #if products == maxProducts:
+            #    global_vars.maxM = True
+
+
+        #print "[Global Timing  :::  (Total = %0.2f s) => (1st Section = %0.2f s) + (2nd Section = %0.2f s)][Section nLLeval  :::  (nLL_p1 = %0.2f s) + (nLL_p2 = %0.2f) + (nLL_p3 = %0.2f s)][gpu = %d vs cpu = %d]" % (global_vars.first_section + global_vars.second_section, global_vars.first_section, global_vars.second_section, global_vars.nLL_p1, global_vars.nLL_p2, global_vars.nLL_p3, global_vars.gpu_mult, global_vars.cpu_mult)
+
+        #print "[Global Timing  :::  (Total = %0.2f s) => (1st Section = %0.2f s) + (2nd Section = %0.2f s)], [GPU Mult = %d, CPU Mult = %d]\n" % (global_vars.first_section + global_vars.second_section, global_vars.first_section, global_vars.second_section, global_vars.gpu_mult, global_vars.cpu_mult)
+
+        #print "[Global Timing  :::  (Total = %0.2f s) => (1st Section = %0.2f s) + (2nd Section = %0.2f s)]\n[2 Section Timing  :::  (Total = %0.2f s) => (Select Columns = %0.2f s) + (Compute log-likelihood = %0.2f s) + (Select columns = %0.2f s) + (Compute log-likelihood = %0.2f s) + (Compute pValue = %0.2f s) + (Store Results = %0.2f s)]\n[Section nLLeval  :::  (nLL_p1 = %0.2f s) + (nLL_p2 = %0.2f) + (nLL_p3 = %0.2f s)]" % (global_vars.first_section + global_vars.second_section, global_vars.first_section, global_vars.second_section, global_vars.second_section, global_vars.snd_col1, global_vars.snd_log1, global_vars.snd_col2, global_vars.snd_log2, global_vars.snd_chi, global_vars.snd_res, global_vars.nLL_p1, global_vars.nLL_p2, global_vars.nLL_p3)
+
     def reduce(self, result_sequence):
         #doesn't need "run_once()"
 
@@ -601,6 +613,13 @@ class _Epistasis(object) : #implements IDistributable
 
 
     def do_work(self, lmm, sid0_list, sid1_list):
+
+        #if global_vars.maxM:
+        #    dataframe = pd.DataFrame([])
+        #    return dataframe
+
+        t = time.time()
+
         mkl_rt = ctypes.CDLL('libmkl_rt.so')
         mkl_rt.mkl_set_num_threads(ctypes.byref(ctypes.c_int(1)))
 
@@ -613,12 +632,12 @@ class _Epistasis(object) : #implements IDistributable
         products = snps_read.val[:,sid0_index_list] * snps_read.val[:,sid1_index_list] # in the products matrix, each column i is the elementwise product of sid i in each list
         X = np.hstack((self.covar, snps_read.val, products))
 
-        t = time.time()
-
         k = lmm.S.shape[0]
         N = X.shape[0]
 
+
         ###--------------------------- CUDA Version -------------------------##        
+
         gpu = False
         
         self.lock.acquire()
@@ -628,7 +647,7 @@ class _Epistasis(object) : #implements IDistributable
         else:
             gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
 
-        if gpu_memory_need < self.gpu_free.value:
+        if gpu_memory_need < (self.gpu_free.value ):
             self.gpu_free.value -= gpu_memory_need
             gpu = True
 
@@ -637,16 +656,25 @@ class _Epistasis(object) : #implements IDistributable
         #print "[%d] Need: %d, Free: %d" % (self.myproc, gpu_memory_need, self.gpu_free.value)        
         
         if gpu:
+            #print "<< GPU need %d, Total %d..." % (gpu_memory_need, self.gpu_free.value)
+
+            global_vars.gpu_mult += 1
             #print "[%d] GPU RUN" % (self.myproc)
             U_T = np.copy(lmm.U.T, "F")
-
+            
+            t_par   = time.time()
             X_gpu   = gpuarray.to_gpu(X)
             U_T_gpu = gpuarray.to_gpu(U_T)
+            global_vars.transfer_t += (time.time() - t_par)
+            
+            t_par   = time.time()
             UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
             UX      = UX_gpu.get()
+            global_vars.mult_t  += (time.time() - t_par)
+
+            #print "Time Mult Matrix: [%dx%d].[%dx%d] => Transfer=%0.4f(s), Multiplication=%0.4f(s)" % (len(X), len(X[0]), len(lmm.U.T), len(lmm.U.T[0]), global_vars.transfer_t, global_vars.mult_t)
 
             if (k<N):
-                #UUX = X - lmm.U.dot(UX)
                 U_gpu   = gpuarray.to_gpu(lmm.U)
                 UUX_gpu = culinalg.dot(U_gpu, UX_gpu)
                 UUX     = X - UUX_gpu.get()
@@ -673,35 +701,30 @@ class _Epistasis(object) : #implements IDistributable
             self.lock.release()
             
         else:
-            UX = lmm.U.T.dot(X)
 
+            global_vars.cpu_mult += 1
+
+            t_par  = time.time()
+            UX     = lmm.U.T.dot(X)
+            mult_t = time.time() - t_par
+
+            #print "To CPU... Multiplication=%0.4f(s)" % (mult_t)
+            
             if (k<N):
                 UUX = X - lmm.U.dot(UX)
             else:
                 UUX = None
 
         ###--------------------------- CUDA Version -------------------------##
+        '''
+        UX = lmm.U.T.dot(X)
 
-        #print UX.shape
-        #if (k<N):
-        ##    UUX = X - lmm.U.dot(UX)
-        #else:
-        #    UUX = None
-
-        tt = time.time()        
-        acum = tt - t
-        global_vars.first_section += acum
-
-
-        sid_union = set(sid0_list).union(sid1_list)
-        sid_union_index_list = sorted(self.test_snps.sid_to_index(sid_union))
-        snps_read = self.test_snps[:,sid_union_index_list].read().standardize()
-        sid0_index_list = snps_read.sid_to_index(sid0_list)
-        sid1_index_list = snps_read.sid_to_index(sid1_list)
+        if (k<N):
+            UUX = X - lmm.U.dot(UX)
+        else:
+            UUX = None
+        '''     
         #--------------------------------------------
-        k = lmm.S.shape[0]
-        N = X.shape[0]
-
         
         '''
         dataframe = pd.DataFrame(
@@ -720,9 +743,18 @@ class _Epistasis(object) : #implements IDistributable
         dataframe['NullLogLike'] = dataframe['NullLogLike'].astype(np.float)
         dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
         '''
+
         
         dict_list = []
         
+        global_vars.first_section += (time.time() - t)
+        
+        
+        #dataframe = pd.DataFrame([])
+        #return dataframe
+        
+        t_second = time.time()
+
         for pair_index, sid0 in enumerate(sid0_list):
             sid1 = sid1_list[pair_index]
             sid0_index = sid0_index_list[pair_index]
@@ -743,7 +775,7 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = UUX[:,index_list_less_product]
             else:
                 lmm.UUX = None
-            res_null = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=False)
+            res_null = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=True)
             ll_null = -res_null["nLL"]
 
             #Alt -- now with the product feature
@@ -753,7 +785,7 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = UUX[:,index_list]
             else:
                 lmm.UUX = None
-            res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=False)
+            res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=True)
             ll_alt = -res_alt["nLL"]
 
             test_statistic = ll_alt - ll_null
@@ -789,7 +821,7 @@ class _Epistasis(object) : #implements IDistributable
         #print "Timing acum in %d (%0.4f (s))" % (len(sid0_list) * 2, global_vars.log_time)
         
         dataframe = pd.DataFrame(dict_list)    
-        global_vars.log_time = 0
+        global_vars.second_section += (time.time() - t_second)
 
         return dataframe
         
@@ -813,9 +845,9 @@ class _Epistasis(object) : #implements IDistributable
 
         #print UX.shape
 
-        tt = time.time()        
-        acum = tt - t
-        global_vars.first_section += acum
+        #tt = time.time()        
+        #acum = tt - t
+        #global_vars.first_section += acum
 
         #print "NEW Matrix Time First Matrix (%d x %d).dot(%d x %d) : Indiv=%0.4f (s): Tot=%0.4f (s)" % (len(lmm.U.T), len(lmm.U.T[0]), len(X), len(X[0]), tt - t, global_vars.first_section)
 
@@ -903,9 +935,9 @@ class _Epistasis(object) : #implements IDistributable
 
         #print UX.shape
 
-        tt = time.time()        
-        acum = tt - t
-        global_vars.first_section += acum
+        #tt = time.time()        
+        #acum = tt - t
+        #global_vars.first_section += acum
 
         #print "NEW Matrix Time First Matrix (%d x %d).dot(%d x %d) : Indiv=%0.4f (s): Tot=%0.4f (s)" % (len(lmm.U.T), len(lmm.U.T[0]), len(X), len(X[0]), tt - t, global_vars.first_section)
 

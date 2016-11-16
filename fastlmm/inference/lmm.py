@@ -406,19 +406,18 @@ class LMM(object):
         XKX = UXS.T.dot(self.UX)
         XKy = UXS.T.dot(self.Uy)
         yKy = UyS.T.dot(self.Uy)
-        '''
-        print "-------------------------"
-        print len(self.Uy)
-        print "-------------------------"
-        print len(UXS)
-        print "-------------------------"
-        print len(UyS)
-        print "-------------------------"
-        print len(self.Uy)
-        print "-------------------------"
-        print len(self.UX)
-        print "-------------------------"
-        '''
+
+        #print "================================="
+        #print "Uy:",  len(self.Uy)
+        #print "-------------------------"
+        #print "UXS:", len(UXS), " x ", len(UXS[0])
+        #print "-------------------------"
+        #print "UyS:", len(UyS)
+        #print "-------------------------"
+        #print "UX:", len(self.UX), " x ", len(self.UX[0])
+        #print "-------------------------"
+        #print "Sd:", len(Sd)
+
         global_vars.nLL_p1 += (time.time() - nll_t)
         nll_t = time.time()
 
@@ -443,6 +442,12 @@ class LMM(object):
             XKy += self.UUX.T.dot(self.UUy)/(denom)
             yKy += self.UUy.T.dot(self.UUy)/(denom)
 
+            #print "-------------------------"
+            #print "UUX: ", len(self.UUX), " x ", len(self.UUX[0])
+            #print "-------------------------"
+            #print "UUy: ", len(self.UUy)
+            #print "-------------------------"
+
             t = time.time()
             if useMemorizedLogdetK:
                 if self.memorizedLogdetK_denom is None:
@@ -455,7 +460,6 @@ class LMM(object):
             global_vars.log_time2 += (time.time() - t)
 
         global_vars.nLL_p2 += (time.time() - nll_t)
-        nll_t = time.time()
 
         # proximal contamination (see Supplement Note 2: An Efficient Algorithm for Avoiding Proximal Contamination)
         # available at: http://www.nature.com/nmeth/journal/v9/n6/extref/nmeth.2037-S1.pdf
@@ -514,6 +518,7 @@ class LMM(object):
             
 
         #######
+        nll_t = time.time()
         
         [SxKx,UxKx]= LA.eigh(XKX)
         #optionally regularize the beta weights by penalty
@@ -521,6 +526,8 @@ class LMM(object):
             SxKx+=penalty
         i_pos = SxKx>1E-10
         beta = SP.dot(UxKx[:,i_pos],(SP.dot(UxKx[:,i_pos].T,XKy)/SxKx[i_pos]))
+
+        #print "beta: " , len(beta)
 
         r2 = yKy-XKy.dot(beta)
 
@@ -566,6 +573,8 @@ class LMM(object):
                   'scale':scale
                   }        
 
+
+        #print "================================="
         global_vars.nLL_p3 += (time.time() - nll_t)
 
         assert SP.all(SP.isreal(nLL)), "nLL has an imaginary component, possibly due to constant covariates"

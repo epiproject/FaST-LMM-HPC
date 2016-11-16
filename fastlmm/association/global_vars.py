@@ -15,6 +15,17 @@ global nLL_p1
 global nLL_p2
 global nLL_p3
 
+
+global gpu_mult
+global cpu_mult
+
+global transfer_t
+global mult_t
+
+global maxM
+
+maxM = False
+
 first_section  = 0
 second_section = 0
 
@@ -33,6 +44,12 @@ nLL_p1 = 0
 nLL_p2 = 0
 nLL_p3 = 0
 
+
+gpu_mult = 0
+cpu_mult = 0
+
+transfer_t = 0
+mult_t = 0
 
 '''
 global facum_2
