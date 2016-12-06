@@ -1,5 +1,23 @@
+##### GPU ######
+global cpu_dot
+global gpu_free
+global cpy_fortran
+global gpu_transfer
+global gpu_dot
+
+cpu_dot      = 0
+cpy_fortran  = 0
+gpu_transfer = 0
+gpu_dot      = 0
+gpu_free     = 0
+
+##### GPU ######
+
 global first_section
 global second_section
+
+global call_func
+global other_func
 
 global snd_col1
 global snd_log1
@@ -28,6 +46,9 @@ maxM = False
 
 first_section  = 0
 second_section = 0
+
+call_func  = 0
+other_func = 0
 
 snd_col1 = 0
 snd_log1 = 0

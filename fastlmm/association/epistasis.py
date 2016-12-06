@@ -48,7 +48,7 @@ def my_run_one_task(distributable, taskindex, taskcount, workdirectory):
 
     culinalg.init()
 
-    distributable.gpu_free.value = drv.mem_get_info()[0]
+    #distributable.gpu_free.value = drv.mem_get_info()[0]
     distributable.gpu_free.value = 0 #TODO: REMOVE
 
     shaped_distributable = shape_to_desired_workcount(distributable, taskcount)
@@ -86,7 +86,9 @@ def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_na
               log_delta=None, min_log_delta=-5, max_log_delta=10, 
               cache_file = None,
               runner=None,
-              mode = 0):
+              mode = 0,
+              max_gpu_procs = 1,
+              split_matrix  = 100):
 
     #if runner is None:
         #runner = Local()
@@ -98,7 +100,10 @@ def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_na
         runner = Local()
 
     epistasis = _Epistasis(test_snps,pheno,G0, G1, mixing, covar,sid_list_0,sid_list_1, log_delta, min_log_delta, max_log_delta, output_file_name, cache_file)
+
     epistasis.mode = mode
+    epistasis.max_gpu_procs = max_gpu_procs
+    epistasis.split_matrix  = split_matrix
 
     epistasis.fill_in_cache_file()
     
@@ -231,6 +236,8 @@ class _Epistasis(object) : #implements IDistributable
         self.mode      = 0
         self.queue     = None
         self.gpu_free  = 0
+        self.max_gpu_procs = -1
+        self.split_matrix  = -1
 
         self.test_snps = test_snps
         self.pheno = pheno
@@ -364,12 +371,12 @@ class _Epistasis(object) : #implements IDistributable
         products = 0
         for sid0_list, sid1_list in self.pair_block_sequence_range(start, end):
             yield lambda lmm=lmm, sid0_list=sid0_list, sid1_list=sid1_list : self.do_work(lmm, sid0_list, sid1_list)            
-            products += 1
-            if products == maxProducts:
-                global_vars.maxM = True
+            #products += 1
+            #if products == maxProducts:
+            #    global_vars.maxM = True
 
         
-        print "[%i]Transfer: %0.4f(s), Multiplication: %0.4f(s)" % (self.myproc, global_vars.transfer_t, global_vars.mult_t) 
+        print "[%i]Primera Fase: %0.4f(s) Desglose [Funcion: %0.4f(s) + Otro: %0.4f(s)], Segunda Fase: %0.4f(s), Desglose GPU Funcion  [CPU Mult: %0.4f(s) + COPY Fortran: %0.4f(s) + GPU Transfer: %0.4f(s) + GPU dot: %0.4f(s) + GPU Free: %0.4f(s)]" % (self.myproc, global_vars.first_section, global_vars.call_func, global_vars.other_func, global_vars.second_section, global_vars.cpu_dot, global_vars.cpy_fortran, global_vars.gpu_transfer, global_vars.gpu_dot, global_vars.gpu_free)
 
         #print "[Global Timing  :::  (Total = %0.2f s) => (1st Section = %0.2f s) + (2nd Section = %0.2f s)], [GPU Mult = %d, CPU Mult = %d]\n" % (global_vars.first_section + global_vars.second_section, global_vars.first_section, global_vars.second_section, global_vars.gpu_mult, global_vars.cpu_mult)
 
@@ -447,7 +454,7 @@ class _Epistasis(object) : #implements IDistributable
         size_goal = next_start - start
         end = block_end * self.pair_count // self.work_count
         
-        #print os.getpid(), ": Block_start: ", start, "Block end:", end
+       #print os.getpid(), ": Block_start: ", start, "Block end:", end
         
         sid0_list = []
         sid1_list = []
@@ -614,141 +621,208 @@ class _Epistasis(object) : #implements IDistributable
         logging.info("external_log_delta={0}".format(self.external_log_delta))
 
 
-    def matrix_mult_cpu_gpu(self, proc_id, lock, max_gpu_procs, gpu_sync, split_col, X, Y):
+    def matrix_mult_cpu_gpu(self, proc_id, lock, max_gpu_procs, gpu_sync, split_col, X, Y, k, N):
+
+        #######################################################################################
+        #######################################################################################
+        '''
+        XT = X.T
+        XF = np.copy(XT, "F")
+        
+        X_gpu     = gpuarray.to_gpu(np.float64(XF))
+        Y_gpu     = gpuarray.to_gpu(np.float64(Y))
+        
+        R_gpu     = culinalg.dot(X_gpu, Y_gpu)
+        R         = R_gpu.get()
+
+        if (k<N):
+            U_gpu   = gpuarray.to_gpu(X)
+            UUX_gpu = culinalg.dot(U_gpu, R_gpu)
+            UUX     = Y - UUX_gpu.get()
+                    
+            U_gpu.gpudata.free()
+            UUX_gpu.gpudata.free()
+            R_gpu.gpudata.free()
+
+            del R_gpu
+            del U_gpu
+            del UUX_gpu
+            
+        else:
+            UUX = None
+
+        X_gpu.gpudata.free()
+        Y_gpu.gpudata.free()
+        
+        del X_gpu
+        del Y_gpu
+        
+        return R, UUX
+        '''
+        #######################################################################################
+        #######################################################################################
+
         dot_timer = 0
         transf    = 0
         
+        XT = X.T
+
         R = None
+        UUX = None
         
         wait   = True
         noGPU  = False
         allGPU = False
-        ##############################################################
-        ##                     Split MATRIX Dot                     ##
-        ##############################################################
-        #UX     = lmm.U.T.dot(X)
-
+        
         col_p  = 0
 
-        t = time.time()
         while wait:
             lock.acquire()
             if gpu_sync.value < max_gpu_procs:
                 gpu_sync.value += 1
                 wait = False
             lock.release()
-        
+
             if wait:
-                print "[%i] START in CPU..." % (proc_id)
+                t = time.time()
                 ##############################################################
                 cols_list = []
-            
+                
                 col_limit = col_p + split_col
                 if col_limit  >= Y.shape[1]:
                     col_limit = Y.shape[1]
                     noGPU = True
-            
+                
                 for c in range(col_p, col_limit):
                     cols_list.append(c)
                 
-                splitR = X.T.dot(Y[:, cols_list])
-            
+                splitR = XT.dot(Y[:, cols_list])
+                
                 if R is None:
                     R = splitR
                 else:
                     R = np.concatenate((R, splitR), axis=1)
-
+                
                 col_p = col_limit
 
+                tt = time.time()        
+                global_vars.cpu_dot += (tt - t)
+            
                 if noGPU:
                     break
-            ##############################################################
+                ##############################################################
 
-        tt = time.time()        
-        cpu_time  = tt - t
-
-        if noGPU:
-            return R
-
-        if R is None:
-            t = time.time()
-            
-            t_trans   = time.time()
-            XF        = np.copy(X, "F")
-
-            print "X: ", XF.strides
-            print "Y: ", Y.strides
-            
-            X_gpu     = gpuarray.to_gpu(np.float64(XF))
-            Y_gpu     = gpuarray.to_gpu(np.float64(Y))
-            tt_trans  = time.time()
-            
-            t_m       = time.time()
-            R_gpu     = culinalg.dot(X_gpu, Y_gpu)
-            R         = R_gpu.get()
-            tt_m      = time.time()
-
-            print R            
-            
-            tt = time.time()
-            gpu_time  = tt - t
-
-            print "*[%i] Finished TOTAL process in GPU (%dx%d . %dx%d = %dx%d): %0.2f(s), (Mult Time + Get %0.4f(s), Transfer Time %0.2f(s))" % (proc_id, X_gpu.shape[0], X_gpu.shape[1], Y_gpu.shape[0], Y_gpu.shape[1], R.shape[0], R.shape[1], gpu_time, tt_m - t_m, tt_trans - t_trans)
-
-        else:
-            t = time.time()
-            
-            t_copy = time.time()
-            #X2     = np.copy(X, 'F')
-            cols_list = []
-            for c in range(col_p, Y.shape[1]):
-                cols_list.append(c)
-            tt_copy = time.time()
+        
+        if not noGPU:
+            if R is None:
+                t = time.time()
+                XF = np.copy(XT, "F")
+                global_vars.cpy_fortran += (time.time() - t)
                 
-            t_trans   = time.time()
-            X_gpu  = gpuarray.to_gpu(np.float64(X.T))
-            Y_gpu  = gpuarray.to_gpu(np.float64(Y[:, cols_list]))
-            tt_trans  = time.time()
-            
-            t_m       = time.time()
-            R_gpu     = culinalg.dot(X_gpu, Y_gpu)
-            splitR    = R_gpu.get()
-            tt_m      = time.time()
-            
-            t_merge   = time.time()
-            #print splitR
-            R = np.concatenate((R, splitR), axis=1)
-            tt_merge  = time.time()
-            
-            tt = time.time()        
-            gpu_time  = tt - t
+                t = time.time()
+                X_gpu     = gpuarray.to_gpu(np.float64(XF))
+                Y_gpu     = gpuarray.to_gpu(np.float64(Y))
+                global_vars.gpu_transfer += (time.time() - t)
+                
+                t = time.time()
+                R_gpu = culinalg.dot(X_gpu, Y_gpu)
+                R = R_gpu.get()
+                global_vars.gpu_dot += (time.time() - t)
 
-            print "/[%i] Finished PARTIAL process in CPU: %0.2f(s), GPU (%dx%d . %dx%d = %dx%d): %0.2f (s), (Mult Time + Get %0.5f(s), Copy Time, %0.2f(s), Transfer Time %0.2f(s),  Merge Matrix %0.2f(s))" % (proc_id, cpu_time, X_gpu.shape[0], X_gpu.shape[1], Y_gpu.shape[0], Y_gpu.shape[1], splitR.shape[0], splitR.shape[1], gpu_time, tt_m - t_m, tt_copy - t_copy, tt_trans - t_trans, tt_merge - t_merge)
-        
-        R_gpu.gpudata.free()
-        X_gpu.gpudata.free()
-        Y_gpu.gpudata.free()
-        
-        del R_gpu
-        del X_gpu
-        del Y_gpu
-        
-        lock.acquire()
-        gpu_sync.value -= 1
-        lock.release()
-        
-        return R
+            else:
+                t = time.time()
+                XF = np.copy(XT, 'F')
+                global_vars.cpy_fortran += (time.time() - t)
+
+                t = time.time()
+                cols_list = []
+                for c in range(col_p, Y.shape[1]):
+                    cols_list.append(c)
+
+                X_gpu  = gpuarray.to_gpu(np.float64(XF))
+                Y_gpu  = gpuarray.to_gpu(np.float64(Y[:, cols_list]))
+                global_vars.gpu_transfer += (time.time() - t)
+                
+                t = time.time()
+                R_gpu     = culinalg.dot(X_gpu, Y_gpu)
+                splitR = R_gpu.get()
+                R = np.concatenate((R, splitR), axis=1)
+                global_vars.gpu_dot += (time.time() - t) 
+
+                t = time.time()
+                R_gpu.gpudata.free()
+                del R_gpu
+                global_vars.gpu_free += (time.time() - t)
+
+                if (k<N):
+                    t = time.time()
+                    RF = np.copy(R, 'F')
+                    global_vars.cpy_fortran += (time.time() - t)
+                    
+                    t = time.time()
+                    R_gpu = gpuarray.to_gpu(RF)
+                    global_vars.gpu_transfer += (time.time() - t)
+                    
+                    
+            if (k<N):
+                t = time.time()
+                U_gpu   = gpuarray.to_gpu(X)
+                global_vars.gpu_transfer += (time.time() - t)
+
+                t = time.time()
+                UUX_gpu = culinalg.dot(U_gpu, R_gpu)
+                UUX     = Y - UUX_gpu.get()
+                global_vars.gpu_dot += (time.time() - t)
+                
+                t = time.time()
+                U_gpu.gpudata.free()
+                UUX_gpu.gpudata.free()
+                R_gpu.gpudata.free()
+
+                del R_gpu
+                del U_gpu
+                del UUX_gpu
+                global_vars.gpu_free += (time.time() - t)
+
+            else:
+                UUX = None
+            
+                
+            t = time.time()
+            X_gpu.gpudata.free()
+            Y_gpu.gpudata.free()
+                                
+            del X_gpu
+            del Y_gpu
+            global_vars.gpu_free += (time.time() - t)
+
+            lock.acquire()
+            gpu_sync.value -= 1
+            lock.release()
+
+            return R, UUX
+            
+        else:
+            if (k<N):
+                print "ALL IN CPU"
+                t = time.time()
+                UUX = Y - X.dot(R)
+                global_vars.cpu_dot += (time.time() - t)
+            else:
+                UUX = None
+
+        return R, UUX
 
 
 
     def do_work(self, lmm, sid0_list, sid1_list):
-
+        '''
         if global_vars.maxM:
             dataframe = pd.DataFrame(
                 index=np.arange(len(sid0_list)),
                 columns=('SNP0', 'Chr0', 'GenDist0', 'ChrPos0', 'SNP1', 'Chr1', 'GenDist1', 'ChrPos1', 'PValue', 'NullLogLike', 'AltLogLike')
                 )
-        
+            
             #!!Is this the only way to set types in a dataframe?
             dataframe['Chr0'] = dataframe['Chr0'].astype(np.float)
             dataframe['GenDist0'] = dataframe['GenDist0'].astype(np.float)
@@ -759,14 +833,16 @@ class _Epistasis(object) : #implements IDistributable
             dataframe['PValue'] = dataframe['PValue'].astype(np.float)
             dataframe['NullLogLike'] = dataframe['NullLogLike'].astype(np.float)
             dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
-
+            
             return dataframe
+        '''
+        
+        t_f = time.time()
 
-        t = time.time()
-
+        t_p = time.time()
         mkl_rt = ctypes.CDLL('libmkl_rt.so')
         mkl_rt.mkl_set_num_threads(ctypes.byref(ctypes.c_int(1)))
-
+        
         sid_union = set(sid0_list).union(sid1_list)
         sid_union_index_list = sorted(self.test_snps.sid_to_index(sid_union))
         snps_read = self.test_snps[:,sid_union_index_list].read().standardize()
@@ -775,34 +851,29 @@ class _Epistasis(object) : #implements IDistributable
         
         products = snps_read.val[:,sid0_index_list] * snps_read.val[:,sid1_index_list] # in the products matrix, each column i is the elementwise product of sid i in each list
         X = np.hstack((self.covar, snps_read.val, products))
-
+        
         k = lmm.S.shape[0]
         N = X.shape[0]
-        
-        UX = lmm.U.T.dot(X)
-        print UX
-        print "================================================================="
+        global_vars.other_func += (time.time() - t_p)
 
-        #print lmm.U.T
-        #print X
-        
-        U_T     = np.copy(lmm.U.T, "F")
-        X_gpu   = gpuarray.to_gpu(X)
-        U_T_gpu = gpuarray.to_gpu(U_T)
-        UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
-        UX      = UX_gpu.get()
         #UX = lmm.U.T.dot(X)
-        print UX
+        
+        #print UX
 
+        ##############################################################
+        ##                     Split MATRIX Dot                     ##
+        ##############################################################
+        t_p = time.time()
+        UX, UUX = self.matrix_mult_cpu_gpu(self.myproc, self.lock, self.max_gpu_procs, self.gpu_free, self.split_matrix, lmm.U, X, k, N)
+        global_vars.call_func += (time.time() - t_p)
+        #############################################################
+        #############################################################
+        #############################################################
+        
+        
 
-        max_gpu_procs = 1
-        split_col = 500
-        #UX2 = self.matrix_mult_cpu_gpu(self.myproc, self.lock, max_gpu_procs, self.gpu_free, split_col, lmm.U.T, X)
-
-
-        '''
         ###--------------------------- CUDA Version -------------------------##        
-
+        '''
         gpu = False
         
         self.lock.acquire()
@@ -818,11 +889,8 @@ class _Epistasis(object) : #implements IDistributable
 
         self.lock.release()
         
-        #print "[%d] Need: %d, Free: %d" % (self.myproc, gpu_memory_need, self.gpu_free.value)        
-        
         if gpu:
-            #print "<< GPU need %d, Total %d..." % (gpu_memory_need, self.gpu_free.value)
-
+            
             global_vars.gpu_mult += 1
             #print "[%d] GPU RUN" % (self.myproc)
             U_T = np.copy(lmm.U.T, "F")
@@ -837,14 +905,11 @@ class _Epistasis(object) : #implements IDistributable
             UX      = UX_gpu.get()
             global_vars.mult_t  += (time.time() - t_par)
 
-            #print "[%i]Time Mult Matrix: [%dx%d].[%dx%d] = [%dx%d] => Transfer=%0.4f(s), Multiplication=%0.4f(s)" % (self.myproc, len(U_T), len(U_T[0]), len(X), len(X[0]), len(UX), len(UX[0]), global_vars.transfer_t, global_vars.mult_t)
-
-
             if (k<N):
                 U_gpu   = gpuarray.to_gpu(lmm.U)
                 UUX_gpu = culinalg.dot(U_gpu, UX_gpu)
                 UUX     = X - UUX_gpu.get()
-
+                
                 U_gpu.gpudata.free()
                 UUX_gpu.gpudata.free()
                 
@@ -867,21 +932,21 @@ class _Epistasis(object) : #implements IDistributable
             self.lock.release()
             
         else:
-            pass
-
             global_vars.cpu_mult += 1
 
             t_par  = time.time()
             UX     = lmm.U.T.dot(X)
             mult_t = time.time() - t_par
 
-            #print "To CPU... Multiplication=%0.4f(s)" % (mult_t)
+            print "To CPU... Multiplication=%0.4f(s)" % (mult_t)
             
             if (k<N):
                 UUX = X - lmm.U.dot(UX)
             else:
                 UUX = None
+        '''
 
+        '''
         dataframe = pd.DataFrame(
             index=np.arange(len(sid0_list)),
             columns=('SNP0', 'Chr0', 'GenDist0', 'ChrPos0', 'SNP1', 'Chr1', 'GenDist1', 'ChrPos1', 'PValue', 'NullLogLike', 'AltLogLike')
@@ -898,29 +963,15 @@ class _Epistasis(object) : #implements IDistributable
         dataframe['NullLogLike'] = dataframe['NullLogLike'].astype(np.float)
         dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
 
-        '''
-        dict_list = []
-        
-        global_vars.first_section += (time.time() - t)
-        
-        dataframe = pd.DataFrame(
-            index=np.arange(len(sid0_list)),
-            columns=('SNP0', 'Chr0', 'GenDist0', 'ChrPos0', 'SNP1', 'Chr1', 'GenDist1', 'ChrPos1', 'PValue', 'NullLogLike', 'AltLogLike')
-            )
-        
-        #!!Is this the only way to set types in a dataframe?
-        dataframe['Chr0'] = dataframe['Chr0'].astype(np.float)
-        dataframe['GenDist0'] = dataframe['GenDist0'].astype(np.float)
-        dataframe['ChrPos0'] = dataframe['ChrPos0'].astype(np.float)
-        dataframe['Chr1'] = dataframe['Chr1'].astype(np.float)
-        dataframe['GenDist1'] = dataframe['GenDist1'].astype(np.float)
-        dataframe['ChrPos1'] = dataframe['ChrPos1'].astype(np.float)
-        dataframe['PValue'] = dataframe['PValue'].astype(np.float)
-        dataframe['NullLogLike'] = dataframe['NullLogLike'].astype(np.float)
-        dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
 
         return dataframe
 
+        '''
+
+        global_vars.first_section += (time.time() - t_f)
+
+        dict_list = []
+        
         t_second = time.time()
 
         for pair_index, sid0 in enumerate(sid0_list):
@@ -966,8 +1017,8 @@ class _Epistasis(object) : #implements IDistributable
                  sid0, snps_read.pos[sid0_index,0],  snps_read.pos[sid0_index,1], snps_read.pos[sid0_index,2],
                  sid1, snps_read.pos[sid1_index,0],  snps_read.pos[sid1_index,1], snps_read.pos[sid1_index,2],
                  pvalue, ll_null, ll_alt]
-            
             '''
+
             ##################################################################################################################################            
             #x = time.time()
             dict_frame = {}            
@@ -992,8 +1043,197 @@ class _Epistasis(object) : #implements IDistributable
         global_vars.second_section += (time.time() - t_second)
 
         return dataframe
+
+
+        #if (k<N):
+        #    UUX = X - lmm.U.dot(UX)
+        #else:
+        #    UUX = None
+        
+        ##############################################################
+        ##                     Split MATRIX Dot                     ##
+        ##############################################################
+
+        #if (k<N):
+        #    UUX = X - self.matrix_mult_cpu_gpu(self.myproc, self.lock, 1, self.gpu_free, 500, lmm.U, UX, False)
+            #UUX = X - lmm.U.dot(UX)
+        #else:
+        #    UUX = None
+        
+        #print R
+        #self.lock.acquire()
+        #print UX
+        #print R
+        #print "-------------------------------------------------------------"
+        #self.lock.release()
+
+        #for i in range(0, 1499):
+        #    UX_c = lmm.U.T.dot(X[:,i])
+        #    for p in range(0, len(UX[:,i])):
+        #        val_1 = round(UX[:,i][p], 12)
+        #        val_2 = round(UX_c[p], 12)
+        #        val_3 = round(UX_g[:,i][p], 12)
+        #        if (val_1 != val_2) or (val_1 != val_3):
+        #            print val_1," vs ",val_2," vs ",val_3
+
+        #print lmm.U.T[:,[0,1,2,3,5,6,7,8,9]][0:9]
+        #print "-----------------------------------------------"
+        #print X[:,[0,1,2,3,5,6,7,8,9]][0:9]
+        #print "-----------------------------------------------"
+
+        #print "U.T: ", lmm.U.T[:,0:4800][0:1].shape
+        #print "X: ", X[0:4800].shape
+        
+        #U_T = np.copy(lmm.U.T, "F")
+        #X_gpu   = gpuarray.to_gpu(np.float64(X))
+        #U_T_gpu = gpuarray.to_gpu(np.float64(U_T))
+        #UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
+        #UX_g    = UX_gpu.get()
+
+        '''
+        UX = lmm.U.T.dot(X)
+        if (k<N):
+            UUX = X - lmm.U.dot(UX)
+        else:
+            UUX = None
+        '''
+        
+        #UX_c = lmm.U.T.dot(X[:,0])
+        
+        #print UX[:,0][0], " vs ",UX_c[0]," vs ",UX_g[:,0][0]
+        
+        #acum = 0.0
+        #for p in range(0,len(lmm.U.T[1])):
+        #    acum += (lmm.U.T[0][p] * X[:,0][p])
+        
+            
+            
+        #for item in lmm.U.T[0]
+
+        #print lmm.U.T.shape
+        #print X.shape
+        
+        #UT = lmm.U.T[:,0:5][0:1]
+        #X  = X[:,0][0:5]
+
+        #print UT.shape
+        #print UT
+        #print "-----------------------------------------------------"
+        #print X.shape
+        #print X
+        #print "-----------------------------------------------------"
+        
+        #UX = lmm.U.T.dot(X)
+        
+        #for r in lmm.U:
+        #    for item in r:
+        #        sys.stderr.write("%f " % item)
+        #    sys.stderr.write("\n")
+
+        '''
+        print "UT:", lmm.U.T.shape
+        print "X:", X.shape
+        
+        UX = lmm.U.T[:,0:4804].dot(X[0:4804])
+        print "0:",UX[0][0], ",10:", UX[10][0], ",1000: ", UX[100][0], ",4802: ", UX[499][0]
+        print "---------------------------------------"
+        UX = lmm.U.T.dot(X)
+        print "0:",UX[0][0], ",10:", UX[10][0], ",1000: ", UX[100][0], ",4802: ", UX[499][0]
+        print "---------------------------------------"
+        
+        #U_TF     = np.copy(lmm.U, 'F')
+        #XF       = np.copy(X)
+        #print "UT:", U_TF.shape
+        #print "X:", XF.shape
+        #
+
+        #UX = U_TF.dot(XF)
+
+        UX = lmm.U.T.dot(X[:,0])
+        #UX = lmm.U.T.dot(X[:,0])
+        print "0:",UX[0], ",10:", UX[10], ",1000: ", UX[100], ",4802: ", UX[499]
+        
+        print "================================================================="
+        
+        X_gpu   = gpuarray.to_gpu(np.float64(X))
+        U_T_gpu = gpuarray.to_gpu(np.float64(U_TF))
+        
+        #X_gpu   = gpuarray.to_gpu(np.float64(X[:,[0]][0:4804]))
+        #U_T_gpu = gpuarray.to_gpu(np.float64(U_TF[:,0:4804]))
+
+        print X_gpu.shape
+        print U_T_gpu.shape
+
+        UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
+        UX      = UX_gpu.get()
+        print UX[0]
+        '''
+        '''
+        X2 = X[0:5][:,[0, 1, 2, 3, 4]]
+        UT2 = lmm.U.T[0:5][:,[0, 1, 2, 3, 4]]
+
+        print "UT:", UT2.shape
+        print "X:", X2.shape
+
+        UX = UT2[:,0:2].dot(X2[0:2])
+        print UX
+
+        print "---------------------------------------"
+        
+        UX = UT2[:,0:2].dot(X2[:,[0]][0:2])
+        print UX[0]
+
+        print "---------------------------------------"
+
+        UX = UT2[:,0:2].dot(X2[:,[0,1]][0:2])
+        print UX[0]
+        '''
+
+        #U_T     = np.copy(lmm.U.T, "F")
+        #X_gpu   = gpuarray.to_gpu(X[0:4800])
+        #U_T_gpu = gpuarray.to_gpu(U_T[:,0:4800])
+
+        #print "U.T: ", U_T_gpu.shape
+        #print "X: ", X_gpu.shape
+
+        #UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
+        #UX      = UX_gpu.get()
+        
+        #print U_T_gpu
+        #print "-----------------------------------------------"
+        #print X_gpu
+        #print "-----------------------------------------------"
+        #print UX
+        #print "================================================================="
+        
+        '''
+        UX = lmm.U.T.dot(X)
+        if (k<N):
+            UUX = X - lmm.U.dot(UX)
+        else:
+            UUX = None
         
 
+        print UX[0][0], UX[0][1], UX[0][2]
+
+        
+        #print lmm.U.T
+        #print X
+        
+        U_T     = np.copy(lmm.U.T, "F")
+        X_gpu   = gpuarray.to_gpu(X)
+        U_T_gpu = gpuarray.to_gpu(U_T)
+        UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
+        UX      = UX_gpu.get()
+
+        print UX[0][0], UX[0][1], UX[0][2]
+        print UX
+
+
+        max_gpu_procs = 1
+        split_col = 500
+        #UX2 = self.matrix_mult_cpu_gpu(self.myproc, self.lock, max_gpu_procs, self.gpu_free, split_col, lmm.U.T, X)
+        '''
 
 
     def do_work_first_normal(self, lmm, sid0_list, sid1_list):        
@@ -1031,7 +1271,7 @@ class _Epistasis(object) : #implements IDistributable
         pack = _PackEpistasis(X, UX, UUX, sid0_list, sid1_list)
                 
         return pack
-
+        '''
 
     def do_work_first(self, lmm, sid0_list, sid1_list):        
         sid_union = set(sid0_list).union(sid1_list)
@@ -1145,7 +1385,7 @@ class _Epistasis(object) : #implements IDistributable
         k = lmm.S.shape[0]
         N = X.shape[0]
 
-        '''
+
         dataframe = pd.DataFrame(
             index=np.arange(len(sid0_list)),
             columns=('SNP0', 'Chr0', 'GenDist0', 'ChrPos0', 'SNP1', 'Chr1', 'GenDist1', 'ChrPos1', 'PValue', 'NullLogLike', 'AltLogLike')
@@ -1161,7 +1401,7 @@ class _Epistasis(object) : #implements IDistributable
         dataframe['PValue'] = dataframe['PValue'].astype(np.float)
         dataframe['NullLogLike'] = dataframe['NullLogLike'].astype(np.float)
         dataframe['AltLogLike'] = dataframe['AltLogLike'].astype(np.float)
-        '''
+
         
         dict_list = []
         
@@ -1203,12 +1443,12 @@ class _Epistasis(object) : #implements IDistributable
             pvalue = stats.chi2.sf(2.0 * test_statistic, degrees_of_freedom)
             logging.debug("<{0},{1}>, null={2}, alt={3}, pvalue={4}".format(sid0,sid1,ll_null,ll_alt,pvalue))
 
-            '''
+
             dataframe.iloc[pair_index] = [
                  sid0, snps_read.pos[sid0_index,0],  snps_read.pos[sid0_index,1], snps_read.pos[sid0_index,2],
                  sid1, snps_read.pos[sid1_index,0],  snps_read.pos[sid1_index,1], snps_read.pos[sid1_index,2],
                  pvalue, ll_null, ll_alt]
-            '''
+
             
             ##################################################################################################################################            
             #x = time.time()
@@ -1234,7 +1474,7 @@ class _Epistasis(object) : #implements IDistributable
         global_vars.log_time = 0
 
         return dataframe
-        
+        '''
     
 if __name__ == "__main__":
     
