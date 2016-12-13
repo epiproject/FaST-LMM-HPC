@@ -5,6 +5,16 @@ global cpy_fortran
 global gpu_transfer
 global gpu_dot
 
+global n_cpu_mult
+global n_gpu_mult1
+global n_gpu_mult2
+global n_gpu_mult3
+
+n_cpu_mult    = 0
+n_gpu_mult1   = 0
+n_gpu_mult2   = 0
+n_gpu_mult3   = 0
+
 cpu_dot      = 0
 cpy_fortran  = 0
 gpu_transfer = 0
