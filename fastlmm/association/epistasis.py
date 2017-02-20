@@ -878,7 +878,73 @@ class _Epistasis(object) : #implements IDistributable
         ##                     Split MATRIX Dot                     ##
         ##############################################################
         t_p = time.time()
-        UX, UUX = self.matrix_mult_cpu_gpu(self.myproc, self.lock, self.max_gpu_procs, self.gpu_free, self.split_matrix, lmm.U, X, k, N)
+
+        ###--------------------------- CUDA Version -------------------------##        
+        gpu = False
+
+        while not gpu:
+            self.lock.acquire()
+        
+            if (k<N):
+                gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes + lmm.U.nbytes      
+            else:
+                gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
+
+            if gpu_memory_need < self.gpu_free.value:
+                self.gpu_free.value -= gpu_memory_need
+                gpu = True
+
+            self.lock.release()
+        
+        
+        if gpu:
+            #print "[%d] GPU RUN" % (self.myproc)
+            U_T = np.copy(lmm.U.T, "F")
+
+            X_gpu   = gpuarray.to_gpu(X)
+            U_T_gpu = gpuarray.to_gpu(U_T)
+            UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
+            UX      = UX_gpu.get()
+
+            if (k<N):
+                #UUX = X - lmm.U.dot(UX)
+                U_gpu   = gpuarray.to_gpu(lmm.U)
+                UUX_gpu = culinalg.dot(U_gpu, UX_gpu)
+                UUX     = X - UUX_gpu.get()
+
+                U_gpu.gpudata.free()
+                UUX_gpu.gpudata.free()
+                
+                del U_gpu
+                del UUX_gpu
+
+            else:
+                UUX = None
+        
+            X_gpu.gpudata.free()
+            U_T_gpu.gpudata.free()
+            UX_gpu.gpudata.free()
+            
+            del X_gpu
+            del U_T_gpu
+            del UX_gpu     
+            
+            self.lock.acquire()
+            self.gpu_free.value += gpu_memory_need
+            self.lock.release()
+            
+        else:
+            UX = lmm.U.T.dot(X)
+
+            if (k<N):
+                UUX = X - lmm.U.dot(UX)
+            else:
+                UUX = None
+
+        ###--------------------------- CUDA Version -------------------------##
+
+        #UX, UUX = self.matrix_mult_cpu_gpu(self.myproc, self.lock, self.max_gpu_procs, self.gpu_free, self.split_matrix, lmm.U, X, k, N)
+
         global_vars.call_func += (time.time() - t_p)
         #############################################################
         #############################################################
