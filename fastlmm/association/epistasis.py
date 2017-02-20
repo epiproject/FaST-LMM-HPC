@@ -882,19 +882,18 @@ class _Epistasis(object) : #implements IDistributable
         ###--------------------------- CUDA Version -------------------------##        
         gpu = False
 
-        while not gpu:
-            self.lock.acquire()
+        self.lock.acquire()
         
-            if (k<N):
-                gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes + lmm.U.nbytes      
-            else:
-                gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
+        if (k<N):
+            gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes + lmm.U.nbytes      
+        else:
+            gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
 
-            if gpu_memory_need < self.gpu_free.value:
-                self.gpu_free.value -= gpu_memory_need
-                gpu = True
+        if gpu_memory_need < self.gpu_free.value:
+            self.gpu_free.value -= gpu_memory_need
+            gpu = True
 
-            self.lock.release()
+        self.lock.release()
         
         
         if gpu:
