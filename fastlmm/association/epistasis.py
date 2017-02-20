@@ -870,11 +870,10 @@ class _Epistasis(object) : #implements IDistributable
         k = lmm.S.shape[0]
         N = X.shape[0]
         global_vars.other_func += (time.time() - t_p)
-
-        #UX = lmm.U.T.dot(X)
         
+        #UX = lmm.U.T.dot(X)
         #print UX
-
+        
         ##############################################################
         ##                     Split MATRIX Dot                     ##
         ##############################################################
@@ -895,7 +894,7 @@ class _Epistasis(object) : #implements IDistributable
             sid1 = sid1_list[pair_index]
             sid0_index = sid0_index_list[pair_index]
             sid1_index = sid1_index_list[pair_index]
-
+            
             index_list = np.array([pair_index]) #index to product
             index_list = index_list + len(sid_union_index_list) #Shift by the number of snps in the union
             index_list = np.hstack((np.array([sid0_index,sid1_index]),index_list)) # index to sid0 and sid1
@@ -903,7 +902,7 @@ class _Epistasis(object) : #implements IDistributable
             index_list = np.hstack((np.arange(self.covar.shape[1]),index_list)) #indexes of the covar
             
             index_list_less_product = index_list[:-1] #index to everything but the product
-
+            
             #Null -- the two additive SNPs
             lmm.X = X[:,index_list_less_product]
             lmm.UX = UX[:,index_list_less_product]
@@ -913,7 +912,7 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = None
             res_null = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=True)
             ll_null = -res_null["nLL"]
-
+            
             #Alt -- now with the product feature
             lmm.X = X[:,index_list]
             lmm.UX = UX[:,index_list]
@@ -923,7 +922,7 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = None
             res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=True)
             ll_alt = -res_alt["nLL"]
-
+            
             test_statistic = ll_alt - ll_null
             degrees_of_freedom = 1
             pvalue = stats.chi2.sf(2.0 * test_statistic, degrees_of_freedom)
@@ -953,7 +952,7 @@ class _Epistasis(object) : #implements IDistributable
             dict_list.append(dict_frame)            
             #tot_iloc += (time.time() - x)
             ##################################################################################################################################
-
+            
         #print "Timing acum in %d (%0.4f (s))" % (len(sid0_list) * 2, global_vars.log_time)
         
         dataframe = pd.DataFrame(dict_list)    
