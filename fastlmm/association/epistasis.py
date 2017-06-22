@@ -276,7 +276,7 @@ class _Epistasis(object) : #implements IDistributable
         self._str = "{0}({1},{2},G0={6},G1={7},mixing={8},covar={3},output_file={12},sid_list_0={4},sid_list_1{5},log_delta={9},min_log_delta={10},max_log_delta={11},cache_file={13})".format(
             self.__class__.__name__, self.test_snps,self.pheno,self.covar,self.sid_list_0,self.sid_list_1,
                  self.G0, self.G1_or_none, self.mixing, self.external_log_delta, self.min_log_delta, self.max_log_delta, output_file, cache_file)
-        self.block_size = 1000
+        self.block_size = 6000
 
     def set_sid_sets(self):
         sid_set_0 = set(self.sid_list_0)
