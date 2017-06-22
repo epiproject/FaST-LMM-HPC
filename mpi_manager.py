@@ -1,4 +1,5 @@
 from mpi4py import MPI
+import commands
 import sys
 import multiprocessing
 import time
@@ -47,12 +48,14 @@ taskcount       = int(sys.argv[1])
 snps_fd         = sys.argv[2]
 pheno_fd        = sys.argv[3]
 
-#print "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+host = commands.getoutput("hostname")
 
 if rank == 0:
     final_t = time.time()
 
 if rank == mpi_procs - 1:
+    print "I am the writer, in the host: ", host
+
     snps_list = []
     fd = open(snps_fd + ".bim", "r")
     for l in fd:
@@ -101,11 +104,13 @@ if rank == mpi_procs - 1:
         else:
             task = []
             
-        comm.send(task, dest=rank_dest, tag=1)
+        comm.send(task, dest=rank_dest, tag=2)
 
     ####################################################################################
 
 else:
+    print "I am the worker, in the host: ", host
+
     print "[%d]WORKER PROCESS START" % (rank)
     t = time.time()
     new_res = epistasis(snps_fd, pheno_fd, snps_fd, taskcount, pairs_per_block=pairs_per_block)

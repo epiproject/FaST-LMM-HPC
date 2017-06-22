@@ -13,7 +13,28 @@ import time
 import pandas as pd
 from mpi4py import MPI
 
-def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work, q_items, queue, mutex, pairs_per_block, snps_list):
+from multiprocessing import Lock, Manager, Queue
+from copy import copy, deepcopy
+#----------------------------------------------------
+
+####################### GPU #########################
+
+import pycuda.gpuarray as gpuarray
+import pycuda.driver as drv
+
+culinalg = None
+#import pycuda.autoinit
+#import skcuda.linalg as culinalg
+#import skcuda.linalg as culinalg
+#import skcuda.misc as cumisc
+#import scikits.cuda.cublas as cublas
+
+####################### GPU #########################
+
+from fastlmm.association import global_vars
+
+
+def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work, q_items, queue, mutex, pairs_per_block, snps_list, lock, gpu_free):
 
     ####################### LOADING DATA EPISTASIS #########################
 
@@ -28,7 +49,21 @@ def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work,
     taskindex = runner.taskindex
     taskcount = runner.taskcount
     workdirectory = distributable.tempdirectory
-    
+
+    epistasis.gpu_free = gpu_free
+    epistasis.lock = lock
+
+    global culinalg
+    import pycuda.autoinit
+    import skcuda.linalg as culinalg
+
+    culinalg.init()
+    epistasis.gpu_free.value = drv.mem_get_info()[0]
+
+
+    #print epistasis.gpu_free.value
+    #return 0
+
     #if not 0 < taskcount: raise Exception("Expect taskcount to be positive")
     #if not (0 <= taskindex and taskindex < taskcount+1) :raise Exception("Expect taskindex to be between 0 (inclusive) and taskcount (exclusive)")    
     #shaped_distributable = shape_to_desired_workcount(distributable, taskcount)
@@ -55,6 +90,7 @@ def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work,
     lmm.sety(epistasis.pheno['vals'])    
     ####################### LOADED DATA EPISTASIS #########################
 
+    print "START Process..."
 
     ######################### MPI WORKER SECTION ##########################
     while True:
@@ -66,30 +102,23 @@ def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work,
         mutex.release()
         
         if item:
+            #print "[%d]PROCESS ITEM" % (rank)
             ################# Work #####################
             snp0_list, snp1_list = making_pairs(item, pairs_per_block, snps_list)
-            '''
-            for itr in range(len(snp0_list)):
-                sid0 = snp0_list[itr]
-                sid1 = snp1_list[itr]
-                if (sid0 == "rs6437282" and sid1 == "rs864560") or (sid0 == "rs864560" and sid1 == "rs6437282") :
-                    print "=================",sid0,"-",sid1," ========================"
-
-                if (sid0 == "rs2008906" and sid1 == "rs1042073") or (sid0 == "rs1042073" and sid1 == "rs2008906") :
-                    print "=================",sid0,"-",sid1," ========================"
-            '''
-            #print "[",item,"]: ",snp0_list
-            #print "[",item,"]: ",snp1_list            
-            #print "Process Work"
 
             result = epistasis.do_work(lmm, snp1_list, snp0_list)
             results_list.append((taskindex, result))
-            
-            #print result
             ############################################
         if not work.value and queue.empty():
+            #print "[%d]BREAK LOOP" % (rank)
             break
     ######################### MPI WORKER SECTION ##########################
+
+    comm = MPI.COMM_WORLD
+    rank = comm.Get_rank()
+    
+    #print "[%d]First Section %0.2f, Second Section %0.2f, Total %0.2f, By node: Otro: %0.2f, nLLeval 1: %0.2f, nLLeval 2: %0.2f,  chi2 : %0.2f, Dataframe: %0.2f" % (rank, global_vars.first_section, global_vars.second_section, global_vars.first_section + global_vars.second_section, global_vars.l_tot1, global_vars.l_tot2, global_vars.l_tot3, global_vars.l_tot4, global_vars.l_tot5)
+
 
     pickle.dump(results_list, f, pickle.HIGHEST_PROTOCOL)
 
@@ -129,7 +158,7 @@ def epistasis(test_snps, pheno, G0, taskcount,
 
     epistasis.fill_in_cache_file()
     
-    #print "====== FILL IN CAHE FILE FINISHED ======"
+    print "====== FILL IN CAHE FILE FINISHED ======"
     snps_list = []
     fd = open(test_snps + ".bim", "r")
     for l in fd:
@@ -171,39 +200,44 @@ def epistasis(test_snps, pheno, G0, taskcount,
     q_items = manager.Value('i', 0)
     queue   = manager.Queue()
     mutex   = multiprocessing.Lock()
+    lock      = Lock()
+    gpu_free  = manager.Value('i', 0)
 
     for i in range(taskcount):
         command_string = tunner.format(i)
 
         #TODO: MEMORY USAGE DANGER! SNPS_LIST WILL BE COPY FOR EACH PROCESS
-        p = multiprocessing.Process(target=_worker, args=(epistasis, distributablep_filename, command_string, i, rank, work, q_items, queue, mutex, pairs_per_block, snps_list))
+        p = multiprocessing.Process(target=_worker, args=(epistasis, distributablep_filename, command_string, i, rank, work, q_items, queue, mutex, pairs_per_block, snps_list, lock, gpu_free))
         jobs.append(p)
         p.start()
     
     while True:
+        #print "[Worker %d] Send petition to Manager " % (rank)
         comm.send(rank, dest=mpi_procs - 1, tag=1)
-        task = comm.recv(source=mpi_procs - 1, tag=1)
-        #print "[Worker %d] Work Recived: " % (rank), task
+        task = comm.recv(source=mpi_procs - 1, tag=2)
         if len(task):
+            #print "[Worker %d] Work Recived: " % (rank), task
             mutex.acquire()
             queue.put(task)
             q_items.value += 1
             mutex.release()
         else:
+            #print "[Worker %d] Not more work! Finish!??" % (rank)
             comm.send(-1, dest=mpi_procs - 1, tag=1)
             work.value = 0
             break
 
-        #print "QUEUE ITEMS: %d, TASKCOUNT: %d" % (q_items.value, taskcount)
-
+        #print "In <----- QUEUE ITEMS: %d, TASKCOUNT: %d" % (q_items.value, taskcount)
         while q_items.value == (taskcount + 2):
             time.sleep(1)
             #pass
-        
+        #print "Out <----- QUEUE ITEMS: %d, TASKCOUNT: %d" % (q_items.value, taskcount)
 
     for p in jobs:
         res = p.join()
 
+    
+    
     return
     #return result
 
@@ -223,6 +257,8 @@ class _Epistasis(object) : #implements IDistributable
 
     def __init__(self,test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,sid_list_0=None,sid_list_1=None,
                  log_delta=None, min_log_delta=-5, max_log_delta=10, output_file=None, cache_file=None):
+        self.lock      = None
+        self.gpu_free  = 0
         self.test_snps = test_snps
         self.pheno = pheno
         self.output_file_or_none = output_file
@@ -320,6 +356,8 @@ class _Epistasis(object) : #implements IDistributable
 
         for sid0_list, sid1_list in self.pair_block_sequence_range(start,end):
             yield lambda lmm=lmm,sid0_list=sid0_list,sid1_list=sid1_list : self.do_work(lmm,sid0_list,sid1_list)  # the 'lmm=lmm,...' is need to get around a strangeness in Python
+
+
 
     def reduce(self, result_sequence):
         #doesn't need "run_once()"
@@ -500,7 +538,8 @@ class _Epistasis(object) : #implements IDistributable
         return self._pair_count
 
     def lmm_from_cache_file(self):
-        logging.info("Loading precomputation from {0}".format(self.cache_file))
+        print "Loading precomputation from ", self.cache_file
+
         lmm = LMM()
         with np.load(self.cache_file) as data:
             lmm.U = data['arr_0']
@@ -553,6 +592,7 @@ class _Epistasis(object) : #implements IDistributable
     do_pair_time = time.time()
 
     def do_work(self, lmm, sid0_list, sid1_list):
+        t1 = time.time()
 
         mkl_rt = ctypes.CDLL('libmkl_rt.so')
         mkl_rt.mkl_set_num_threads(ctypes.byref(ctypes.c_int(1)))
@@ -594,36 +634,88 @@ class _Epistasis(object) : #implements IDistributable
 
         products = snps_read.val[:,sid0_index_list] * snps_read.val[:,sid1_index_list] # in the products matrix, each column i is the elementwise product of sid i in each list
         X = np.hstack((self.covar, snps_read.val, products))
-        UX = lmm.U.T.dot(X)
+
         k = lmm.S.shape[0]
         N = X.shape[0]
-        if (k<N):
-            UUX = X - lmm.U.dot(UX)
-        else:
-            UUX = None
 
+        gpu = False
+        
+        self.lock.acquire()
+        if (k<N):
+            gpu_memory_need = 3*X.nbytes + lmm.U.T.nbytes + lmm.U.nbytes      
+        else:
+            gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
+
+        if gpu_memory_need < self.gpu_free.value:
+            self.gpu_free.value -= gpu_memory_need
+            gpu = True
+        self.lock.release()
+        
+        #print "[%d] Need: %d, Free: %d" % (self.myproc, gpu_memory_need, self.gpu_free.value)        
+        
+        if gpu:
+            #print "[%d] GPU RUN" % (self.myproc)
+            U_T = np.copy(lmm.U.T, "F")
+
+            X_gpu   = gpuarray.to_gpu(X)
+            U_T_gpu = gpuarray.to_gpu(U_T)
+            UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
+            UX      = UX_gpu.get()
+            #print "X:[%d x %d] . U_T:[%d x %d] = UX:%d x %d" % (len(X), len(X[0]), len(U_T), len(U_T[0]), len(UX), len(UX[0]))
+            
+            if (k<N):
+                #UUX = X - lmm.U.dot(UX)
+                U_gpu   = gpuarray.to_gpu(lmm.U)
+                UUX_gpu = culinalg.dot(U_gpu, UX_gpu)
+                UUX     = X - UUX_gpu.get()
+                #print "U:[%d x %d] . UX:[%d x %d] = UUX:%d x %d" % (len(X), len(X[0]), len(U_T), len(U_T[0]), len(UX), len(UX[0]))
+
+                U_gpu.gpudata.free()
+                UUX_gpu.gpudata.free()
+                
+                del U_gpu
+                del UUX_gpu
+
+            else:
+                UUX = None
+        
+            X_gpu.gpudata.free()
+            U_T_gpu.gpudata.free()
+            UX_gpu.gpudata.free()
+            
+            del X_gpu
+            del U_T_gpu
+            del UX_gpu     
+            
+            self.lock.acquire()
+            self.gpu_free.value += gpu_memory_need
+            self.lock.release()
+        else:
+            UX = lmm.U.T.dot(X)
+
+            if (k<N):
+                UUX = X - lmm.U.dot(UX)
+            else:
+                UUX = None
+        ###--------------------------- CUDA Version -------------------------##
+        tt1 = time.time()
+        global_vars.first_section += (tt1 - t1)
+
+
+        t2 = time.time()
         for pair_index, sid0 in enumerate(sid0_list):
+
             sid1 = sid1_list[pair_index]
             sid0_index = sid0_index_list[pair_index]
-            sid1_index = sid1_index_list[pair_index]            
-
+            sid1_index = sid1_index_list[pair_index]
+            
             index_list = np.array([pair_index]) #index to product
             index_list = index_list + len(sid_union_index_list) #Shift by the number of snps in the union
             index_list = np.hstack((np.array([sid0_index,sid1_index]),index_list)) # index to sid0 and sid1
             index_list = index_list + self.covar.shape[1] #Shift by the number of values in the covar
             index_list = np.hstack((np.arange(self.covar.shape[1]),index_list)) #indexes of the covar
-
+            
             index_list_less_product = index_list[:-1] #index to everything but the product
-
-            #Null -- the two additive SNPs
-            lmm.X = X[:,index_list_less_product]
-            lmm.UX = UX[:,index_list_less_product]
-            if (k<N):
-                lmm.UUX = UUX[:,index_list_less_product]
-            else:
-                lmm.UUX = None
-            res_null = lmm.nLLeval(delta=self.internal_delta, REML=False)
-            ll_null = -res_null["nLL"]
 
             #Alt -- now with the product feature
             lmm.X = X[:,index_list]
@@ -632,21 +724,37 @@ class _Epistasis(object) : #implements IDistributable
                 lmm.UUX = UUX[:,index_list]
             else:
                 lmm.UUX = None
-            res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False)
+            res_alt = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=True)
             ll_alt = -res_alt["nLL"]
-
+            
+            #Null -- the two additive SNPs
+            #lmm.X = X[:,index_list_less_product]
+            #lmm.UX = UX[:,index_list_less_product]
+            lmm.X = lmm.X[:,:-1]
+            lmm.UX = lmm.UX[:,:-1]
+            if (k<N):
+                lmm.UUX = lmm.UUX[:,:-1]
+                #lmm.UUX = UUX[:,index_list_less_product]
+            else:
+                lmm.UUX = None
+            res_null = lmm.nLLeval(delta=self.internal_delta, REML=False, useMemorizedLogdetK=True)
+            ll_null = -res_null["nLL"]
+            
+            
             test_statistic = ll_alt - ll_null
             degrees_of_freedom = 1
             pvalue = stats.chi2.sf(2.0 * test_statistic, degrees_of_freedom)
             logging.debug("<{0},{1}>, null={2}, alt={3}, pvalue={4}".format(sid0,sid1,ll_null,ll_alt,pvalue))
+            
             '''
             dataframe.iloc[pair_index] = [
                  sid0, snps_read.pos[sid0_index,0],  snps_read.pos[sid0_index,1], snps_read.pos[sid0_index,2],
                  sid1, snps_read.pos[sid1_index,0],  snps_read.pos[sid1_index,1], snps_read.pos[sid1_index,2],
                  pvalue, ll_null, ll_alt]
             '''
+            
             ##################################################################################################################################            
-
+            #x = time.time()
             dict_frame = {}            
             dict_frame['SNP0']        = sid0
             dict_frame['Chr0']        = snps_read.pos[sid0_index,0]
@@ -660,27 +768,14 @@ class _Epistasis(object) : #implements IDistributable
             dict_frame['NullLogLike'] = ll_null
             dict_frame['AltLogLike']  = ll_alt      
             dict_list.append(dict_frame)            
-
+            #tot_iloc += (time.time() - x)
             ##################################################################################################################################
-
-            #if (sid0 == "rs6437282" and sid1 == "rs864560") or (sid0 == "rs864560" and sid1 == "rs6437282") :
-            #    print "=================",sid0,"-",sid1," ========================"
-            #    print dataframe
-            #if (sid0 == "rs2008906" and sid1 == "rs1042073") or (sid0 == "rs1042073" and sid1 == "rs2008906") :
-            #    print "=================",sid0,"-",sid1," ========================"
-            #    print dataframe
-
-            #if (sid0 == "rs6437282" and sid1 == "rs864560") or (sid0 == "rs2008906" and sid1 == "rs1042073") :
-            #    print "=================",sid0,"-",sid1," ========================"
-            #    print dataframe
             
-            #self.do_pair_count += 1
-            #if self.do_pair_count % 100 == 0:
-                #start = self.do_pair_time
-                #self.do_pair_time = time.time()
-                #logging.info("do_pair_count={0}, time={1}".format(self.do_pair_count,self.do_pair_time-start))
-
+        #print "Timing acum in %d (%0.4f (s))" % (len(sid0_list) * 2, global_vars.log_time)
+        
         dataframe = pd.DataFrame(dict_list)    
+        #global_vars.second_section += (time.time() - t_second)
+
         return dataframe
 
 if __name__ == "__main__":
