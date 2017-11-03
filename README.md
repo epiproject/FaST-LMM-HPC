@@ -14,9 +14,9 @@ DOWNLOAD and BUILDING
   
     $ git clone https://github.com/epiproject/FaST-LMM-HPC.git
 
-  Select your branch (in this case 'master').  
+  Select your branch (in this case 'multi-gpu').  
 
-    $ git checkout master 
+    $ git checkout multi-gpu
 
   Follow the same steps that Fast-LMM section "Detailed Package Install Instructions" (see "https://github.com/MicrosoftGenomics/FaST-LMM") for install python package.
   Also you need install the package:
