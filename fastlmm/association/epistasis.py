@@ -50,11 +50,30 @@ def my_run_one_task(distributable, taskindex, taskcount, workdirectory):
     if not (0 <= taskindex and taskindex < taskcount+1) :raise Exception("Expect taskindex to be between 0 (inclusive) and taskcount (exclusive)")
 
     global culinalg
-    import pycuda.autoinit    
     import skcuda.linalg as culinalg
+    import skcuda
 
-    culinalg.init()
-    distributable.gpu_free.value = drv.mem_get_info()[0]
+    #epistasis.gpu_free.value = drv.mem_get_info()[0]
+    
+    GPUNum = drv.Device.count()
+    if GPUNum > 20:
+        GPUNum = 20
+
+    if GPUNum > taskindex:
+        device = taskindex
+    else:
+        device = taskindex % GPUNum
+    
+    #device = 0
+    
+    gpuDev = skcuda.misc.init_device(device)
+    skcuda.misc.init_context(gpuDev)
+    culinalg.init(allocator=drv.mem_alloc)
+    
+    distributable.my_gpu = device
+    distributable.multi_gpu_free[device] = drv.mem_get_info()[0]
+
+    print "START Process %d GPU[%d/%d] : Memory free %f" % (taskindex, device, GPUNum, distributable.multi_gpu_free[device])
 
     shaped_distributable = shape_to_desired_workcount(distributable, taskcount)
 
@@ -75,7 +94,7 @@ def my_run_one_task(distributable, taskindex, taskcount, workdirectory):
 
 
 
-def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tskcount, q, distributable):
+def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tskcount, q, multi_gpu_free, distributable):
 
     distributable.lock = l
     distributable.cond = c
@@ -84,7 +103,7 @@ def my_worker(distributablep_filename, runner_string, l, c, sync, g, tsk_id, tsk
     distributable.numprocs = tskcount
     distributable.queue = q
     distributable.gpu_free = g
-
+    distributable.multi_gpu_free = multi_gpu_free
 
     return my_run_one_task(distributable, tsk_id - 1, tskcount, distributable.tempdirectory)
 
@@ -149,14 +168,14 @@ def epistasis(test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,output_file_na
         manager   = multiprocessing.Manager()
         sync      = manager.Value('i', 0)
         gpu_free  = manager.Value('i', 0)
-
+        multi_gpu_free = manager.Array('f', range(20))
         queue   = Queue()
         jobs = []
 
         for i in range(runner.taskcount):
 
             command_string = runner_cmd.format(i)
-            p = multiprocessing.Process(target=my_worker, args=(distributablep_filename, command_string, lock, cond, sync, gpu_free, i + 1, runner.taskcount, queue, epistasis))
+            p = multiprocessing.Process(target=my_worker, args=(distributablep_filename, command_string, lock, cond, sync, gpu_free, i + 1, runner.taskcount, queue, multi_gpu_free, epistasis))
             jobs.append(p)
             p.start()
     
@@ -243,9 +262,12 @@ class _Epistasis(object) : #implements IDistributable
         self.sync      = None
         self.lock      = None
         self.cond      = None
+        self.multi_gpu_free  = None
         self.myproc    = 0
         self.numprocs  = 0
         self.last_pro  = False
+        self.multi_gpu_free  = None
+        self.my_gpu    = 0
         self.mode      = 0
         self.queue     = None
         self.gpu_free  = 0
@@ -271,7 +293,7 @@ class _Epistasis(object) : #implements IDistributable
                  self.G0, self.G1_or_none, self.mixing, self.external_log_delta, self.min_log_delta, self.max_log_delta, output_file, cache_file)
         
         #self.block_size = 10400        
-        self.block_size = 6000
+        self.block_size = 16000
 
     def set_sid_sets(self):
         sid_set_0 = set(self.sid_list_0)
@@ -909,8 +931,8 @@ class _Epistasis(object) : #implements IDistributable
 
             #print "%d < %d" % (gpu_memory_need, self.gpu_free.value)
 
-        if gpu_memory_need < self.gpu_free.value:
-            self.gpu_free.value -= gpu_memory_need
+        if gpu_memory_need < self.multi_gpu_free[self.my_gpu]:
+            self.multi_gpu_free[self.my_gpu] -= gpu_memory_need
             gpu = True
                 #print "GPU FREE"
 
@@ -954,7 +976,7 @@ class _Epistasis(object) : #implements IDistributable
             del UX_gpu     
             
             self.lock.acquire()
-            self.gpu_free.value += gpu_memory_need
+            self.multi_gpu_free[self.my_gpu] += gpu_memory_need
             self.lock.release()
             
         else:
