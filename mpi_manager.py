@@ -40,7 +40,7 @@ def factorial(n):
 
 #################################################################################
 
-pairs_per_block = 1000
+pairs_per_block = 16000
 comm            = MPI.COMM_WORLD
 rank            = comm.Get_rank()
 mpi_procs       = comm.Get_size()
