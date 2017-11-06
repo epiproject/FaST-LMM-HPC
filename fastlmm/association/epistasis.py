@@ -704,7 +704,7 @@ class _Epistasis(object) : #implements IDistributable
             UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
             UX      = UX_gpu.get()
 
-            print "[%d] Timing Mult X(%d x %d) . U_T(%d x %d), Timing: %0.2f (s)" % (self.id_w, len(X), len(X[0]), len(U_T), len(U_T[0]), time.time() - t_m)
+            #print "[%d] Timing Mult X(%d x %d) . U_T(%d x %d), Timing: %0.2f (s)" % (self.id_w, len(X), len(X[0]), len(U_T), len(U_T[0]), time.time() - t_m)
 
             #print "X:[%d x %d] . U_T:[%d x %d] = UX:%d x %d" % ()
             
