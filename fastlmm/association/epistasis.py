@@ -23,6 +23,7 @@ import pycuda.gpuarray as gpuarray
 import pycuda.driver as drv
 
 culinalg = None
+
 #import pycuda.autoinit
 #import skcuda.linalg as culinalg
 #import skcuda.linalg as culinalg
@@ -34,7 +35,7 @@ culinalg = None
 from fastlmm.association import global_vars
 
 
-def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work, q_items, queue, mutex, pairs_per_block, snps_list, lock, gpu_free):
+def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work, q_items, queue, mutex, pairs_per_block, snps_list, lock, multi_gpu_free, tot_w):
 
     ####################### LOADING DATA EPISTASIS #########################
 
@@ -50,16 +51,36 @@ def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work,
     taskcount = runner.taskcount
     workdirectory = distributable.tempdirectory
 
-    epistasis.gpu_free = gpu_free
+    epistasis.multi_gpu_free = multi_gpu_free
     epistasis.lock = lock
+    epistasis.id_w = id_w
 
     global culinalg
-    import pycuda.autoinit
+    #import pycuda.autoinit
     import skcuda.linalg as culinalg
+    import skcuda
 
-    culinalg.init()
-    epistasis.gpu_free.value = drv.mem_get_info()[0]
+    #epistasis.gpu_free.value = drv.mem_get_info()[0]
+    
+    GPUNum = drv.Device.count()
+    if GPUNum > 20:
+        GPUNum = 20
 
+    if GPUNum > id_w:
+        device = id_w
+    else:
+        device = id_w % GPUNum
+    
+    #device = 0
+    
+    gpuDev = skcuda.misc.init_device(device)
+    skcuda.misc.init_context(gpuDev)
+    culinalg.init(allocator=drv.mem_alloc)
+    
+    epistasis.my_gpu = device
+    epistasis.multi_gpu_free[device] = drv.mem_get_info()[0]
+
+    print "START Process %d GPU[%d/%d] : Memory free %f" % (id_w, device, GPUNum, epistasis.multi_gpu_free[device])
 
     #print epistasis.gpu_free.value
     #return 0
@@ -90,7 +111,6 @@ def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work,
     lmm.sety(epistasis.pheno['vals'])    
     ####################### LOADED DATA EPISTASIS #########################
 
-    print "START Process..."
 
     ######################### MPI WORKER SECTION ##########################
     while True:
@@ -116,7 +136,8 @@ def _worker(epistasis, distributablep_filename, runner_string, id_w, rank, work,
 
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
-    
+
+    print "@@rank\t%d\tthread\t%d\tFirst Section\t%0.2f\tSecond Section\t%0.2f" % (rank, id_w, global_vars.first_section, global_vars.second_section)
     #print "[%d]First Section %0.2f, Second Section %0.2f, Total %0.2f, By node: Otro: %0.2f, nLLeval 1: %0.2f, nLLeval 2: %0.2f,  chi2 : %0.2f, Dataframe: %0.2f" % (rank, global_vars.first_section, global_vars.second_section, global_vars.first_section + global_vars.second_section, global_vars.l_tot1, global_vars.l_tot2, global_vars.l_tot3, global_vars.l_tot4, global_vars.l_tot5)
 
 
@@ -152,13 +173,15 @@ def epistasis(test_snps, pheno, G0, taskcount,
               sid_list_0=None,sid_list_1=None,
               log_delta=None, min_log_delta=-5, max_log_delta=10, 
               cache_file = None):
-    
+
+    t = time.time()
     runner = LocalMultiProc(taskcount, mkl_num_threads=1)    
     epistasis = _Epistasis(test_snps, pheno, G0, G1, mixing, covar, sid_list_0, sid_list_1, log_delta, min_log_delta, max_log_delta, output_file_name, cache_file)
-
+    
     epistasis.fill_in_cache_file()
     
-    print "====== FILL IN CAHE FILE FINISHED ======"
+    print "====== FILL IN CAHE FILE FINISHED IN %lu ======" % (time.time() - t)
+    
     snps_list = []
     fd = open(test_snps + ".bim", "r")
     for l in fd:
@@ -200,14 +223,16 @@ def epistasis(test_snps, pheno, G0, taskcount,
     q_items = manager.Value('i', 0)
     queue   = manager.Queue()
     mutex   = multiprocessing.Lock()
-    lock      = Lock()
-    gpu_free  = manager.Value('i', 0)
+    lock    = Lock()
 
+    multi_gpu_free = manager.Array('f', range(20))
+    
     for i in range(taskcount):
         command_string = tunner.format(i)
 
         #TODO: MEMORY USAGE DANGER! SNPS_LIST WILL BE COPY FOR EACH PROCESS
-        p = multiprocessing.Process(target=_worker, args=(epistasis, distributablep_filename, command_string, i, rank, work, q_items, queue, mutex, pairs_per_block, snps_list, lock, gpu_free))
+        p = multiprocessing.Process(target=_worker, args=(epistasis, distributablep_filename, command_string, i, rank, 
+                                                          work, q_items, queue, mutex, pairs_per_block, snps_list, lock, multi_gpu_free, taskcount))
         jobs.append(p)
         p.start()
     
@@ -258,7 +283,9 @@ class _Epistasis(object) : #implements IDistributable
     def __init__(self,test_snps,pheno,G0, G1=None, mixing=0.0, covar=None,sid_list_0=None,sid_list_1=None,
                  log_delta=None, min_log_delta=-5, max_log_delta=10, output_file=None, cache_file=None):
         self.lock      = None
-        self.gpu_free  = 0
+        self.multi_gpu_free  = None
+        self.my_gpu = 0
+        self.id_w = 0
         self.test_snps = test_snps
         self.pheno = pheno
         self.output_file_or_none = output_file
@@ -276,7 +303,7 @@ class _Epistasis(object) : #implements IDistributable
         self._str = "{0}({1},{2},G0={6},G1={7},mixing={8},covar={3},output_file={12},sid_list_0={4},sid_list_1{5},log_delta={9},min_log_delta={10},max_log_delta={11},cache_file={13})".format(
             self.__class__.__name__, self.test_snps,self.pheno,self.covar,self.sid_list_0,self.sid_list_1,
                  self.G0, self.G1_or_none, self.mixing, self.external_log_delta, self.min_log_delta, self.max_log_delta, output_file, cache_file)
-        self.block_size = 6000
+        self.block_size = 12000
 
     def set_sid_sets(self):
         sid_set_0 = set(self.sid_list_0)
@@ -565,9 +592,20 @@ class _Epistasis(object) : #implements IDistributable
         lmm = None
         if not os.path.exists(self.cache_file):
             logging.info("Precomputing eigen")
+
+            tf = time.time()
             lmm = LMM()
+            t1 = time.time()
             G0_standardized = self.G0.read().standardize()
+
+            print ">G0: ", G0_standardized.val.shape
+
+            t2 = time.time()
             lmm.setG(G0_standardized.val, self.G1val_or_none, a2=self.mixing)
+            
+            print "XXXXX========XXXXX %lu (Standardized %lu, setG %lu) XXXXX========XXXXX" % (time.time() - tf, t2 - t1, time.time() - t2)
+
+
             logging.info("Saving precomputation to {0}".format(self.cache_file))
             util.create_directory_if_necessary(self.cache_file)
             np.savez(self.cache_file, lmm.U,lmm.S) #using np.savez instead of pickle because it seems to be faster to read and write
@@ -646,8 +684,8 @@ class _Epistasis(object) : #implements IDistributable
         else:
             gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
 
-        if gpu_memory_need < self.gpu_free.value:
-            self.gpu_free.value -= gpu_memory_need
+        if gpu_memory_need < self.multi_gpu_free[self.my_gpu]:
+            self.multi_gpu_free[self.my_gpu] -= gpu_memory_need
             gpu = True
         self.lock.release()
         
@@ -657,14 +695,23 @@ class _Epistasis(object) : #implements IDistributable
             #print "[%d] GPU RUN" % (self.myproc)
             U_T = np.copy(lmm.U.T, "F")
 
+            t_m = time.time()
+
             X_gpu   = gpuarray.to_gpu(X)
             U_T_gpu = gpuarray.to_gpu(U_T)
+            
+            
             UX_gpu  = culinalg.dot(U_T_gpu, X_gpu)
             UX      = UX_gpu.get()
-            #print "X:[%d x %d] . U_T:[%d x %d] = UX:%d x %d" % (len(X), len(X[0]), len(U_T), len(U_T[0]), len(UX), len(UX[0]))
+
+            print "[%d] Timing Mult X(%d x %d) . U_T(%d x %d), Timing: %0.2f (s)" % (self.id_w, len(X), len(X[0]), len(U_T), len(U_T[0]), time.time() - t_m)
+
+            #print "X:[%d x %d] . U_T:[%d x %d] = UX:%d x %d" % ()
             
             if (k<N):
                 #UUX = X - lmm.U.dot(UX)
+                print "in"
+
                 U_gpu   = gpuarray.to_gpu(lmm.U)
                 UUX_gpu = culinalg.dot(U_gpu, UX_gpu)
                 UUX     = X - UUX_gpu.get()
@@ -678,7 +725,8 @@ class _Epistasis(object) : #implements IDistributable
 
             else:
                 UUX = None
-        
+
+ 
             X_gpu.gpudata.free()
             U_T_gpu.gpudata.free()
             UX_gpu.gpudata.free()
@@ -688,7 +736,7 @@ class _Epistasis(object) : #implements IDistributable
             del UX_gpu     
             
             self.lock.acquire()
-            self.gpu_free.value += gpu_memory_need
+            self.multi_gpu_free[self.my_gpu] += gpu_memory_need
             self.lock.release()
         else:
             UX = lmm.U.T.dot(X)
@@ -774,7 +822,7 @@ class _Epistasis(object) : #implements IDistributable
         #print "Timing acum in %d (%0.4f (s))" % (len(sid0_list) * 2, global_vars.log_time)
         
         dataframe = pd.DataFrame(dict_list)    
-        #global_vars.second_section += (time.time() - t_second)
+        global_vars.second_section += (time.time() - t2)
 
         return dataframe
 
