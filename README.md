@@ -1,6 +1,6 @@
-# Fast-LMM Epistasis MPI
+# Fast-LMM Epistasis
 
-MPI implementation for Epistasis Fast-LMM for Linux
+Improvements for Epistasis Fast-LMM
 
 CONTACT
 -------
