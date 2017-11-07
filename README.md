@@ -18,8 +18,8 @@ DOWNLOAD and BUILDING
 
     $ git checkout master 
 
-  Follow the same steps that Fast-LMM section "Detailed Package Install Instructions" (see "https://github.com/MicrosoftGenomics/FaST-LMM") for install python package.
-  Also you need install the package:
+  Follow the same steps that Fast-LMM section "Detailed Package Install Instructions" (see "https://github.com/MicrosoftGenomics/FaST-LMM") for install python packages.
+  Also you need install the packages:
 
     pycuda
     skcuda
