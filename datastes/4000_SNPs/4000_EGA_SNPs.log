@@ -1,0 +1,48 @@
+
+@----------------------------------------------------------@
+|        PLINK!       |     v1.07      |   10/Aug/2009     |
+|----------------------------------------------------------|
+|  (C) 2009 Shaun Purcell, GNU General Public License, v2  |
+|----------------------------------------------------------|
+|  For documentation, citation & bug-report instructions:  |
+|        http://pngu.mgh.harvard.edu/purcell/plink/        |
+@----------------------------------------------------------@
+
+Skipping web check... [ --noweb ] 
+Writing this text to log file [ 4000_EGA_SNPs.log ]
+Analysis started: Tue Jul 12 11:09:22 2016
+
+Options in effect:
+	--noweb
+	--bfile /home/martineh/EGA_Epistasis/EGAD_03_prepared/BD_study_05
+	--extract snps.extract
+	--make-bed
+	--out 4000_EGA_SNPs
+
+Reading map (extended format) from [ /home/martineh/EGA_Epistasis/EGAD_03_prepared/BD_study_05.bim ] 
+455086 markers to be included from [ /home/martineh/EGA_Epistasis/EGAD_03_prepared/BD_study_05.bim ]
+Reading pedigree information from [ /home/martineh/EGA_Epistasis/EGAD_03_prepared/BD_study_05.fam ] 
+4804 individuals read from [ /home/martineh/EGA_Epistasis/EGAD_03_prepared/BD_study_05.fam ] 
+4804 individuals with nonmissing phenotypes
+Assuming a disease phenotype (1=unaff, 2=aff, 0=miss)
+Missing phenotype value is also -9
+1868 cases, 2936 controls and 0 missing
+2141 males, 2663 females, and 0 of unspecified sex
+Reading genotype bitfile from [ /home/martineh/EGA_Epistasis/EGAD_03_prepared/BD_study_05.bed ] 
+Detected that binary PED file is v1.00 SNP-major mode
+Reading list of SNPs to extract [ snps.extract ] ... 4000 read
+Before frequency and genotyping pruning, there are 4000 SNPs
+4804 founders and 0 non-founders found
+Total genotyping rate in remaining individuals is 0.994362
+0 SNPs failed missingness test ( GENO > 1 )
+0 SNPs failed frequency test ( MAF < 0 )
+After frequency and genotyping pruning, there are 4000 SNPs
+After filtering, 1868 cases, 2936 controls and 0 missing
+After filtering, 2141 males, 2663 females, and 0 of unspecified sex
+Writing pedigree information to [ 4000_EGA_SNPs.fam ] 
+Writing map (extended format) information to [ 4000_EGA_SNPs.bim ] 
+Writing genotype bitfile to [ 4000_EGA_SNPs.bed ] 
+Using (default) SNP-major mode
+
+Analysis finished: Tue Jul 12 11:10:15 2016
+
