@@ -1,6 +1,6 @@
 # Improvments For Fast-LMM Epistasis
 
-Improvements for Epistasis Fast-LMM
+Improvements for Fast-LMM Epistasis
 
 CONTACT
 -------
