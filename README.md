@@ -36,3 +36,6 @@ RUNING
     
     $ python run_epi.py 8 epiData epiPheno.pheno
 
+  You can find some epistasis datasets in "./datastes/" path. For example, if you want to execute FaST-LMM for 2000 SNPs dataset and 12 processes you can run:
+
+    $ python run_epi.py 12 datastes/2000_SNPs/2000_EGA_SNPs datastes/BD_study_05.pheno
