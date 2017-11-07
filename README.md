@@ -1,6 +1,6 @@
-# Fast-LMM Epistasis MPI
+# Improvements For Fast-LMM Epistasis (Multi-GPU)
 
-MPI implementation for Epistasis Fast-LMM for Linux
+Improvements for Fast-LMM Epistasis (Multi-GPU version)
 
 CONTACT
 -------
