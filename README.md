@@ -1,4 +1,4 @@
-# Fast-LMM Epistasis
+# Improvments For Fast-LMM Epistasis
 
 Improvements for Epistasis Fast-LMM
 
