@@ -925,7 +925,7 @@ class _Epistasis(object) : #implements IDistributable
         self.lock.acquire()
         
         if (k<N):
-            gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes + lmm.U.nbytes      
+            gpu_memory_need = 3*X.nbytes + lmm.U.T.nbytes + lmm.U.nbytes      
         else:
             gpu_memory_need = 2*X.nbytes + lmm.U.T.nbytes
 
