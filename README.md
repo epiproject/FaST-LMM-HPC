@@ -15,9 +15,9 @@ Install instructions
 
     $ git clone https://github.com/epiproject/FaST-LMM-HPC.git
 
-2) Select the desired branch (i.e., 'master').
+2) Select the desired branch (i.e., 'multi-gpu').
 
-    $ git checkout master
+    $ git checkout multi-gpu
 
 3) Install the FaST-LMM dependencies described on the ["Detailed Package Install
 Instructions"](https://github.com/MicrosoftGenomics/FaST-LMM) section of
