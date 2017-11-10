@@ -1,4 +1,4 @@
-# FaST-LMM epistasis test HPC extension (master branch)
+# FaST-LMM epistasis test HPC extension (multi-gpu branch)
 
 FaST-LMM-HPC is a High Performance Computing extension of the epistasis test
 module of [FaST-LMM](https://github.com/MicrosoftGenomics/FaST-LMM). The next branches (versions) are available:
