@@ -55,7 +55,7 @@ Contact
 -------
 
 If you have any doubt, please do not hesitate to contact with:
-* Héctor Martínez (<mailto:martineh@uji.es>)
+* Héctor Martínez (<martineh@uji.es>)
 
 
 References
