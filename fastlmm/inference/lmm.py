@@ -1,3 +1,4 @@
+
 import scipy as SP
 import numpy as NP
 import scipy.linalg as LA
@@ -157,9 +158,7 @@ class LMM(object):
         if k>0:
             if ((not self.forcefullrank) and (k<N)):
                 #it is faster using the eigen decomposition of G.T*G but this is more accurate
-                print ">>>>>>>>>>>>>>>>>>>><<< First If"
                 try:
-                    print ">try"
                     [U,S,V] = LA.svd(self.G,full_matrices = False)
                     if np.any(S < -0.1):
                         logging.warning("kernel contains a negative Eigenvalue")
@@ -167,7 +166,6 @@ class LMM(object):
                     self.S = S*S
                 
                 except LA.LinAlgError:  # revert to Eigenvalue decomposition
-                    print ">Except"
                     logging.warning("Got SVD exception, trying eigenvalue decomposition of square of G. Note that this is a little bit less accurate")
                     [S_,V_] = LA.eigh(self.G.T.dot(self.G))
                     if np.any(S_ < -0.1):
@@ -177,18 +175,12 @@ class LMM(object):
                     self.S*=(N/self.S.sum())
                     self.U=self.G.dot(V_[:,S_nonz]/SP.sqrt(self.S))
             else:
-                print ">>>>>>>>>>>>>>>>>>>><<< Second If"
                 if K0 is None:
-                    t = time.time()
-                    K0=self.G0.dot(self.G0.T)
-                    print ">K0 is None. G0:", self.G0.shape, ", (", time.time() - t, ")"
+                    K0=self.G0.dot(self.G0.T);
                 self.K0=K0
                 if (self.G1 is not None) and (K1 is None):
-                    print ">Dot G1"
                     K1=self.G1.dot(self.G1.T);
-                t = time.time()
                 self.setK(K0=K0, K1=K1, a2=a2)
-                print ">setK K0: ", K0.shape, " (", time.time() - t, ")"
                 #K=self.G.dot(self.G.T)
                 #self.setK(K)
             self.a2 = a2
@@ -426,8 +418,8 @@ class LMM(object):
         #print "-------------------------"
         #print "Sd:", len(Sd)
 
-        #global_vars.nLL_p1 += (time.time() - nll_t)
-        #nll_t = time.time()
+        global_vars.nLL_p1 += (time.time() - nll_t)
+        nll_t = time.time()
 
         if useMemorizedLogdetK:
             if self.memorizedLogdetK is None:
@@ -436,7 +428,7 @@ class LMM(object):
         else:
             logdetK = SP.log(Sd).sum()
 
-        #global_vars.log_time += (time.time() - nll_t)
+        global_vars.log_time += (time.time() - nll_t)
         
         if (k<N):#low rank part
             # determine normalization factor
@@ -465,9 +457,9 @@ class LMM(object):
             else:
                 logdetK += (N-k) * SP.log(denom)
 
-            #global_vars.log_time2 += (time.time() - t)
+            global_vars.log_time2 += (time.time() - t)
 
-        #global_vars.nLL_p2 += (time.time() - nll_t)
+        global_vars.nLL_p2 += (time.time() - nll_t)
 
         # proximal contamination (see Supplement Note 2: An Efficient Algorithm for Avoiding Proximal Contamination)
         # available at: http://www.nature.com/nmeth/journal/v9/n6/extref/nmeth.2037-S1.pdf
@@ -583,7 +575,7 @@ class LMM(object):
 
 
         #print "================================="
-        #global_vars.nLL_p3 += (time.time() - nll_t)
+        global_vars.nLL_p3 += (time.time() - nll_t)
 
         assert SP.all(SP.isreal(nLL)), "nLL has an imaginary component, possibly due to constant covariates"
         return result
