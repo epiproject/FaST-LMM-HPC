@@ -72,7 +72,7 @@ setup(
     long_description=readme(),
     keywords='gwas bioinformatics LMMs MLMs',
     url="http://research.microsoft.com/en-us/um/redmond/projects/mscompbio/fastlmm/",
-    author='Héctor Martínez Pérez',
+    author='Hector Martinez Perez',
     author_email='martineh@uji.es',
     license='Apache 2.0',
     packages=[
