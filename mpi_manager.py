@@ -3,7 +3,7 @@ import commands
 import sys
 import multiprocessing
 import time
-from fastlmm.association import epistasis    
+from fastlmmhpc.association import epistasis    
 import pandas as pd
 import numpy as np
 import pickle
