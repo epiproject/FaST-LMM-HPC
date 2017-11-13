@@ -50,23 +50,23 @@ else:
 
 #see http://stackoverflow.com/questions/4505747/how-should-i-structure-a-python-package-that-contains-cython-code
 if use_cython:
-    ext_modules = [Extension(name="fastlmm.util.stats.quadform.qfc_src.wrap_qfc",
+    ext_modules = [Extension(name="fastlmmhpc.util.stats.quadform.qfc_src.wrap_qfc",
                              language="c++",
-                             sources=["fastlmm/util/stats/quadform/qfc_src/wrap_qfc.pyx", "fastlmm/util/stats/quadform/qfc_src/QFC.cpp"],
+                             sources=["fastlmmhpc/util/stats/quadform/qfc_src/wrap_qfc.pyx", "fastlmmhpc/util/stats/quadform/qfc_src/QFC.cpp"],
                              include_dirs=[numpy.get_include()],
                              define_macros=macros)]
     cmdclass = {'build_ext': build_ext, 'clean': CleanCommand}
 else:
-    ext_modules = [Extension(name="fastlmm.util.stats.quadform.qfc_src.wrap_qfc",
+    ext_modules = [Extension(name="fastlmmhpc.util.stats.quadform.qfc_src.wrap_qfc",
                              language="c++",
-                             sources=["fastlmm/util/stats/quadform/qfc_src/wrap_qfc.cpp", "fastlmm/util/stats/quadform/qfc_src/QFC.cpp"],
+                             sources=["fastlmmhpc/util/stats/quadform/qfc_src/wrap_qfc.cpp", "fastlmmhpc/util/stats/quadform/qfc_src/QFC.cpp"],
                              include_dirs=[numpy.get_include()],
                              define_macros=macros)]
     cmdclass = {}
 
 #python setup.py sdist bdist_wininst upload
 setup(
-    name='fastlmm',
+    name='fastlmmhpc',
     version=version,
     description='Fast GWAS epistasis test extension for High Performance Clusters',
     long_description=readme(),
@@ -76,30 +76,30 @@ setup(
     author_email='martineh@uji.es',
     license='Apache 2.0',
     packages=[
-        "fastlmm/association/tests",
-        "fastlmm/association",
-        "fastlmm/external/util",
-        "fastlmm/external",
-        "fastlmm/feature_selection",
-        "fastlmm/inference",
-        "fastlmm/pyplink/altset_list", #old snpreader
-        "fastlmm/pyplink/snpreader", #old snpreader
-        "fastlmm/pyplink/snpset", #old snpreader
-        "fastlmm/pyplink", #old snpreader
-        "fastlmm/util/runner",
-        "fastlmm/util/stats/quadform",
-        "fastlmm/util/stats/quadform/qfc_src",
-        "fastlmm/util/standardizer",
-        "fastlmm/util/stats",
-        "fastlmm/util",
-        "fastlmm",
+        "fastlmmhpc/association/tests",
+        "fastlmmhpc/association",
+        "fastlmmhpc/external/util",
+        "fastlmmhpc/external",
+        "fastlmmhpc/feature_selection",
+        "fastlmmhpc/inference",
+        "fastlmmhpc/pyplink/altset_list", #old snpreader
+        "fastlmmhpc/pyplink/snpreader", #old snpreader
+        "fastlmmhpc/pyplink/snpset", #old snpreader
+        "fastlmmhpc/pyplink", #old snpreader
+        "fastlmmhpc/util/runner",
+        "fastlmmhpc/util/stats/quadform",
+        "fastlmmhpc/util/stats/quadform/qfc_src",
+        "fastlmmhpc/util/standardizer",
+        "fastlmmhpc/util/stats",
+        "fastlmmhpc/util",
+        "fastlmmhpc",
     ],
-    package_data={"fastlmm/association" : [
-                       "Fastlmm_autoselect/FastLmmC.exe",
-                       "Fastlmm_autoselect/libiomp5md.dll",
-                       "Fastlmm_autoselect/fastlmmc",
-                       "Fastlmm_autoselect/FastLmmC.Manual.pdf"],
-                  "fastlmm/feature_selection" : [
+    package_data={"fastlmmhpc/association" : [
+                       "Fastlmmhpc_autoselect/FastlmmhpcC.exe",
+                       "Fastlmmhpc_autoselect/libiomp5md.dll",
+                       "Fastlmmhpc_autoselect/fastlmmhpcc",
+                       "Fastlmmhpc_autoselect/FastlmmhpcC.Manual.pdf"],
+                  "fastlmmhpc/feature_selection" : [
                        "examples/bronze.txt",
                        "examples/ScanISP.Toydata.config.py",
                        "examples/ScanLMM.Toydata.config.py",
