@@ -1,9 +1,9 @@
 #!/usr/bin/env python2
 
 import time
-from fastlmm.association import epistasis
+from fastlmmhpc.association import epistasis
 from pysnptools.snpreader import Bed
-from fastlmm.util.SamplePi import *
+from fastlmmhpc.util.SamplePi import *
 import pandas as pd
 
 procs  = int(sys.argv[1])
