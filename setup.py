@@ -50,9 +50,9 @@ else:
 
 #see http://stackoverflow.com/questions/4505747/how-should-i-structure-a-python-package-that-contains-cython-code
 if use_cython:
-    ext_modules = [Extension(name="fastlmm.util.stats.quadform.qfc_src.wrap_qfc",
+    ext_modules = [Extension(name="fastlmmhpc.util.stats.quadform.qfc_src.wrap_qfc",
                              language="c++",
-                             sources=["fastlmm/util/stats/quadform/qfc_src/wrap_qfc.pyx", "fastlmm/util/stats/quadform/qfc_src/QFC.cpp"],
+                             sources=["fastlmmhpc/util/stats/quadform/qfc_src/wrap_qfc.pyx", "fastlmmhpc/util/stats/quadform/qfc_src/QFC.cpp"],
                              include_dirs=[numpy.get_include()],
                              define_macros=macros)]
     cmdclass = {'build_ext': build_ext, 'clean': CleanCommand}
